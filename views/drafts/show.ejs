@@ -1,0 +1,175 @@
+<div class="reader"
+     data-reader
+     data-draft-id="<%= draft.id %>"
+     data-kind="<%= draft.kind %>"
+     data-mode="<%= mode %>"
+     data-status="<%= draft.status %>"
+     data-page-count="<%= draft.status === 'ready' ? draft.page_count : 0 %>"
+     data-thread-id="<%= threadId || '' %>"
+     data-csrf="<%= csrfToken %>">
+
+  <div class="reader-bar">
+    <div class="reader-wrap reader-bar-inner">
+      <div class="reader-id">
+        <a class="reader-back" href="/drafts" title="Back to the library">Library</a>
+        <h1 class="reader-title"><%= draft.title %></h1>
+        <p class="reader-by mono small">
+          <span class="badge badge--kind"><%= kindLabel %></span>
+          <%= draft.uploader_name %>
+          <% if (draft.status === 'ready') { %>
+            <span class="dot">·</span><%= draft.page_count %> page<%= draft.page_count === 1 ? '' : 's' %>
+          <% } %>
+        </p>
+      </div>
+
+      <div class="reader-tools">
+        <% if (draft.status === 'ready' && mode === 'html' && sections.length > 1) { %>
+          <label class="section-nav">
+            <span class="visually-hidden">Jump to a section</span>
+            <select data-section-nav>
+              <% sections.forEach(function (s) { %>
+                <option value="<%= s.page_number %>"><%= s.heading %></option>
+              <% }) %>
+            </select>
+          </label>
+        <% } %>
+
+        <% if (draft.status === 'ready') { %>
+          <div class="pager" data-pager>
+            <button type="button" class="btn btn--sm" data-page-prev aria-label="Previous page">‹</button>
+            <span class="pager-readout mono">
+              <span data-page-current>1</span> / <span data-page-total><%= draft.page_count %></span>
+            </span>
+            <button type="button" class="btn btn--sm" data-page-next aria-label="Next page">›</button>
+          </div>
+        <% } %>
+
+        <% if (threadId) { %>
+          <a class="btn btn--sm" href="/board/<%= threadId %>">Discussion</a>
+        <% } %>
+      </div>
+    </div>
+  </div>
+
+  <div class="reader-wrap reader-body">
+    <div class="reader-main">
+
+      <% if (draft.description) { %>
+        <p class="reader-note measure"><%= draft.description %></p>
+      <% } %>
+
+      <% if (draft.status === 'processing') { %>
+        <div class="card card--lead reader-state" data-processing>
+          <p class="eyebrow">Converting</p>
+          <h2 class="reader-state-title">Turning that into pages…</h2>
+          <p class="measure">
+            This usually takes a few seconds. The page refreshes itself the moment it is ready —
+            you can also come back to it later from the library.
+          </p>
+          <p class="progress-dots" aria-hidden="true"><span></span><span></span><span></span></p>
+        </div>
+
+      <% } else if (draft.status === 'failed') { %>
+        <div class="card reader-state reader-state--failed">
+          <p class="eyebrow">Didn’t convert</p>
+          <h2 class="reader-state-title"><%= draft.error_msg || 'That file could not be converted.' %></h2>
+          <p class="measure">
+            The original is still here, so trying again costs nothing — most failures are a
+            file that was still being written when it was picked, or a format the converter
+            could not open.
+          </p>
+          <% if (canManage) { %>
+            <div class="draft-actions">
+              <form method="post" action="/drafts/<%= draft.id %>/retry" class="inline-form">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <button class="btn btn--primary btn--sm" type="submit">Try converting again</button>
+              </form>
+              <form method="post" action="/drafts/<%= draft.id %>/delete" class="inline-form"
+                    onsubmit="return confirm('Remove this draft and its discussion thread?')">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <button class="btn btn--sm btn--danger" type="submit">Remove</button>
+              </form>
+            </div>
+          <% } %>
+        </div>
+
+      <% } else if (mode === 'html') { %>
+        <article class="reader-pane reader-pane--html" data-pane>
+          <div class="reader-page prose" data-page-content><%- firstPageHtml %></div>
+        </article>
+
+      <% } else if (mode === 'pdf') { %>
+        <div class="reader-pane reader-pane--pdf" data-pane>
+          <div class="reader-scroller" data-scroller>
+            <% pageSizes.forEach(function (p) { %>
+              <div class="page-slot" data-page-slot="<%= p.page_number %>"
+                   style="aspect-ratio: <%= (p.width || 612) %> / <%= (p.height || 792) %>;">
+                <p class="page-slot-num mono"><%= p.page_number %></p>
+              </div>
+            <% }) %>
+          </div>
+          <noscript><p class="notice">The PDF reader needs JavaScript switched on.</p></noscript>
+        </div>
+
+      <% } else { %>
+        <div class="reader-pane reader-pane--images" data-pane>
+          <div class="reader-scroller" data-scroller>
+            <% pageSizes.forEach(function (p, i) { %>
+              <figure class="page-slot page-slot--image" data-page-slot="<%= p.page_number %>"
+                      <% if (p.width && p.height) { %>style="aspect-ratio: <%= p.width %> / <%= p.height %>;"<% } %>>
+                <img src="/drafts/<%= draft.id %>/img/<%= p.page_number %>"
+                     alt="Page <%= p.page_number %>"
+                     draggable="false"
+                     <% if (p.width) { %>width="<%= p.width %>"<% } %>
+                     <% if (p.height) { %>height="<%= p.height %>"<% } %>
+                     loading="<%= i < 2 ? 'eager' : 'lazy' %>" decoding="async">
+                <figcaption class="page-slot-num mono"><%= p.page_number %></figcaption>
+              </figure>
+            <% }) %>
+          </div>
+        </div>
+      <% } %>
+    </div>
+
+    <% if (draft.status === 'ready') { %>
+      <aside class="reader-comments" id="reader-comments" data-comments aria-label="Comments">
+        <div class="rc-head">
+          <p class="eyebrow">Comments</p>
+          <div class="rc-scope" role="group" aria-label="Which comments to show">
+            <button type="button" class="btn btn--sm is-on" data-scope="page">This page</button>
+            <button type="button" class="btn btn--sm" data-scope="all">All</button>
+          </div>
+        </div>
+
+        <p class="rc-context mono small" data-rc-context>Page 1</p>
+
+        <div class="rc-list" data-comment-list>
+          <p class="rc-empty">Loading…</p>
+        </div>
+
+        <form class="rc-form" data-comment-form>
+          <label class="visually-hidden" for="rc-body">Add a comment on this page</label>
+          <textarea id="rc-body" name="body" rows="3" maxlength="4000"
+                    placeholder="Note on this page…"></textarea>
+          <div class="rc-form-actions">
+            <span class="hint mono small" data-rc-target>on page 1</span>
+            <button type="submit" class="btn btn--primary btn--sm">Post</button>
+          </div>
+          <p class="rc-error" data-rc-error hidden></p>
+        </form>
+      </aside>
+
+      <button type="button" class="rc-tab" data-comments-toggle aria-controls="reader-comments" aria-expanded="false">
+        Comments <span class="rc-tab-count" data-comment-count>0</span>
+      </button>
+    <% } %>
+  </div>
+
+  <script type="application/json" data-reader-data>
+    <%- JSON.stringify({
+          pageSizes: pageSizes.map(function (p) { return [p.page_number, p.width, p.height]; }),
+          commentCounts: commentCounts,
+          sections: sections.map(function (s) { return [s.page_number, s.heading]; })
+        }).replace(/</g, '\\u003c') %>
+  </script>
+</div>

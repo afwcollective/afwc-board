@@ -1,0 +1,93 @@
+<section class="section">
+  <div class="wrap wrap--narrow">
+    <p class="eyebrow">Members · Share</p>
+    <h1>Share a draft</h1>
+    <p class="lede measure">
+      Upload a chapter and it becomes a page-turner in the browser — readable by members,
+      commentable page by page, and never downloadable.
+    </p>
+
+    <%- include('../partials/form-errors', { errors: errors }) %>
+
+    <noscript>
+      <p class="notice">
+        Uploading needs JavaScript switched on — the form sends the file straight to the
+        server rather than reloading the page.
+      </p>
+    </noscript>
+
+    <form method="post" action="/drafts" enctype="multipart/form-data"
+          class="form card card--form upload-form" id="upload-form" data-csrf="<%= csrfToken %>">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+      <div class="field">
+        <label for="title">Title</label>
+        <input id="title" name="title" type="text" required maxlength="160"
+               value="<%= values.title %>" placeholder="Chapter 4 — The long walk back">
+      </div>
+
+      <div class="field">
+        <label for="description">What you'd like eyes on <span class="optional">(optional)</span></label>
+        <textarea id="description" name="description" rows="3" maxlength="2000"
+                  placeholder="Second draft. I'm unsure about the pacing after the argument."><%= values.description %></textarea>
+      </div>
+
+      <p class="form-legend">What are you uploading?</p>
+
+      <div class="mode-switch" role="radiogroup" aria-label="Upload type">
+        <label class="mode-option">
+          <input type="radio" name="mode" value="document" <%= values.mode !== 'images' ? 'checked' : '' %>>
+          <span class="mode-body">
+            <span class="mode-name">A document</span>
+            <span class="mode-note">.docx, .pdf, .txt or .md — up to <%= limits.maxDocMb %> MB</span>
+          </span>
+        </label>
+        <label class="mode-option">
+          <input type="radio" name="mode" value="images" <%= values.mode === 'images' ? 'checked' : '' %>>
+          <span class="mode-body">
+            <span class="mode-name">A page sequence</span>
+            <span class="mode-note">Graphic novels — up to <%= limits.maxImages %> images</span>
+          </span>
+        </label>
+      </div>
+
+      <div class="field mode-panel" data-mode-panel="document">
+        <label for="document">Document file</label>
+        <input id="document" name="document" type="file"
+               accept=".docx,.pdf,.txt,.md,.markdown,application/pdf,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+        <p class="hint">
+          Word files keep their headings, so the reader gets a section menu. PDFs are shown
+          exactly as laid out. Plain text and Markdown are split into ~1,000-word pages.
+        </p>
+      </div>
+
+      <div class="field mode-panel" data-mode-panel="images" hidden>
+        <label for="images">Page images</label>
+        <input id="images" name="images" type="file" multiple
+               accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" disabled>
+        <p class="hint">
+          JPG, PNG or WebP. Pages are ordered by filename, so name them
+          <span class="mono">01.png</span>, <span class="mono">02.png</span>…
+          Up to <%= limits.maxImages %> images, <%= limits.maxImageMb %> MB each,
+          <%= limits.maxImagesTotalMb %> MB in total.
+        </p>
+        <ul class="file-list" data-file-list hidden></ul>
+      </div>
+
+      <div class="upload-progress" data-progress hidden>
+        <div class="upload-bar"><span data-progress-bar></span></div>
+        <p class="hint mono" data-progress-label>Uploading…</p>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary" data-submit>Upload draft</button>
+        <a class="btn btn--sm" href="/drafts">Back to the library</a>
+      </div>
+
+      <p class="form-aside">
+        Members can read and comment. Nobody gets your original file back out —
+        the reader streams pages, not downloads.
+      </p>
+    </form>
+  </div>
+</section>

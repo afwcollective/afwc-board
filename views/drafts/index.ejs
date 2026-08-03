@@ -1,0 +1,78 @@
+<section class="section">
+  <div class="wrap">
+    <p class="eyebrow">Members · Read &amp; critique</p>
+    <div class="library-head">
+      <div>
+        <h1>Draft library</h1>
+        <p class="lede measure">
+          Everything shared here opens in the reader — nothing downloads. Comment on any page,
+          or take the longer conversation to the draft's discussion thread.
+        </p>
+      </div>
+      <a class="btn btn--primary" href="/drafts/new">Share a draft</a>
+    </div>
+
+    <% if (!drafts.length) { %>
+      <p class="empty">
+        Nothing in the library yet. <a href="/drafts/new">Be the first to share a draft.</a>
+      </p>
+    <% } else { %>
+      <ul class="draft-list">
+        <% drafts.forEach(function (d) { %>
+          <li class="card draft-card draft-card--<%= d.status %>">
+            <p class="draft-meta">
+              <span class="badge badge--kind"><%= kindLabel[d.kind] || d.kind %></span>
+              <% if (d.status === 'processing') { %>
+                <span class="badge badge--warn">Converting…</span>
+              <% } else if (d.status === 'failed') { %>
+                <span class="badge badge--fail">Didn’t convert</span>
+              <% } %>
+              <time datetime="<%= dates.isoAttr(d.created_at) %>"><%= dates.formatDateShort(d.created_at) %></time>
+              <span class="draft-by">· <%= d.uploader_name %></span>
+            </p>
+
+            <h2 class="draft-title">
+              <a href="/drafts/<%= d.id %>"><%= d.title %></a>
+            </h2>
+
+            <% if (d.description) { %>
+              <p class="draft-desc measure"><%= d.description %></p>
+            <% } %>
+
+            <p class="draft-facts mono small">
+              <% if (d.status === 'ready') { %>
+                <span><%= d.page_count %> page<%= d.page_count === 1 ? '' : 's' %></span>
+                <span class="dot">·</span>
+              <% } %>
+              <span><%= d.comment_count %> comment<%= d.comment_count === 1 ? '' : 's' %></span>
+              <% if (d.thread_id) { %>
+                <span class="dot">·</span>
+                <a href="/board/<%= d.thread_id %>">Discussion</a>
+              <% } %>
+            </p>
+
+            <% if (d.status === 'failed') { %>
+              <p class="draft-error"><%= d.error_msg || 'That file could not be converted.' %></p>
+            <% } %>
+
+            <% if (canManage(d)) { %>
+              <div class="draft-actions">
+                <% if (d.status === 'failed') { %>
+                  <form method="post" action="/drafts/<%= d.id %>/retry" class="inline-form">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                    <button class="btn btn--sm" type="submit">Try converting again</button>
+                  </form>
+                <% } %>
+                <form method="post" action="/drafts/<%= d.id %>/delete" class="inline-form"
+                      onsubmit="return confirm('Remove this draft and its discussion thread?')">
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                  <button class="btn btn--sm btn--danger" type="submit">Remove</button>
+                </form>
+              </div>
+            <% } %>
+          </li>
+        <% }) %>
+      </ul>
+    <% } %>
+  </div>
+</section>

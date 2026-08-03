@@ -1,0 +1,11 @@
+pdfjs-dist 4.10.38
+
+Vendored from node_modules/pdfjs-dist by Phase 4-5. Files copied verbatim:
+  build/pdf.min.mjs         -> pdf.min.mjs
+  build/pdf.worker.min.mjs  -> pdf.worker.min.mjs
+  standard_fonts/           -> standard_fonts/
+
+The viewer that drives them is public/js/reader-pdf.js: canvas only, no text
+layer, no annotation layer, no toolbar, no download or print controls.
+To upgrade: bump pdfjs-dist in package.json, re-copy these three paths, and
+rewrite the version line above. Nothing is fetched from a CDN, ever.
