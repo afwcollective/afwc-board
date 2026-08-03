@@ -121,6 +121,20 @@ function destroyAllForUser(userId) {
   return stmt.delForUser().run(userId).changes;
 }
 
+/**
+ * Password-change rotation: kill every OTHER session for this user, keeping
+ * the one making this request alive. Falls back to destroyAllForUser when the
+ * request has no readable session cookie (defensive — should not happen for
+ * an authenticated POST).
+ */
+function destroyOtherSessions(req, userId) {
+  const token = parseCookies(req)[config.sessionCookie];
+  if (!token) return destroyAllForUser(userId);
+  return db
+    .prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?')
+    .run(userId, sha256(token)).changes;
+}
+
 function sweepExpired() {
   return stmt.sweep().run().changes;
 }
@@ -151,6 +165,7 @@ module.exports = {
   readSession,
   destroySession,
   destroyAllForUser,
+  destroyOtherSessions,
   sweepExpired,
   ensureCsrfToken,
 };

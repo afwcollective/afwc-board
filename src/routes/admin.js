@@ -5,6 +5,8 @@ const { getSetting, setSetting } = require('../db');
 const { users, meetings, announcements } = require('../models');
 const { requireLeader } = require('../auth/middleware');
 const { hashSecret } = require('../auth/passwords');
+const sessions = require('../auth/sessions');
+const { generateResetCode, RESET_CODE_TTL_MS } = require('../util/resetcode');
 const { mdToHtml, toPlainText } = require('../util/sanitize');
 const dates = require('../util/dates');
 const { flash } = require('../util/flash');
@@ -39,7 +41,23 @@ router.get('/', (req, res) => {
     leaderCount: users.countLeaders(),
     announcementCount: announcements.list(100).length,
     passcodeSet: !!getSetting('group_passcode_hash'),
+    watermarkOn: getSetting('watermark_on', '1') === '1',
   });
+});
+
+/* --------------------------------------------------- watermark toggle */
+
+router.post('/settings/watermark', (req, res) => {
+  const on = getSetting('watermark_on', '1') === '1';
+  setSetting('watermark_on', on ? '0' : '1');
+  flash(
+    res,
+    'info',
+    on
+      ? 'Watermark turned off. Reader pages no longer show the viewer’s name.'
+      : 'Watermark turned on. Reader pages now show a faint tag of the viewer’s name.'
+  );
+  return res.redirect('/admin');
 });
 
 /* --------------------------------------------------------------- meetings */
@@ -274,6 +292,78 @@ router.post('/passcode', (req, res) => {
   setSetting('group_passcode_hash', hashSecret(passcode));
   flash(res, 'ok', 'Group passcode changed. Share the new one at the next meeting.');
   return res.redirect('/admin');
+});
+
+/* ---------------------------------------------------------------- members */
+
+router.get('/members', (req, res) => {
+  res.render('admin/members', {
+    title: 'Members',
+    bodyClass: 'page-admin',
+    people: users.list(),
+    leaderCount: users.countLeaders(),
+  });
+});
+
+/** True while `target` is the only active leader — the one guard everything below respects. */
+function isLastActiveLeader(target) {
+  return target.role === 'leader' && target.is_active === 1 && users.countLeaders() <= 1;
+}
+
+router.post('/members/:id/deactivate', (req, res, next) => {
+  const target = users.byId(req.params.id);
+  if (!target) return next();
+  if (isLastActiveLeader(target)) {
+    flash(res, 'error', `${target.display_name} is the only active leader — promote someone else first.`);
+    return res.redirect('/admin/members');
+  }
+  users.setActive(target.id, 0);
+  sessions.destroyAllForUser(target.id);
+  flash(res, 'ok', `${target.display_name} was deactivated and signed out everywhere.`);
+  return res.redirect('/admin/members');
+});
+
+router.post('/members/:id/reactivate', (req, res, next) => {
+  const target = users.byId(req.params.id);
+  if (!target) return next();
+  users.setActive(target.id, 1);
+  flash(res, 'ok', `${target.display_name} can sign in again.`);
+  return res.redirect('/admin/members');
+});
+
+router.post('/members/:id/promote', (req, res, next) => {
+  const target = users.byId(req.params.id);
+  if (!target) return next();
+  users.setRole(target.id, 'leader');
+  flash(res, 'ok', `${target.display_name} is now a leader.`);
+  return res.redirect('/admin/members');
+});
+
+router.post('/members/:id/demote', (req, res, next) => {
+  const target = users.byId(req.params.id);
+  if (!target) return next();
+  if (isLastActiveLeader(target)) {
+    flash(res, 'error', `${target.display_name} is the only active leader — promote someone else first.`);
+    return res.redirect('/admin/members');
+  }
+  users.setRole(target.id, 'member');
+  flash(res, 'ok', `${target.display_name} is a member again.`);
+  return res.redirect('/admin/members');
+});
+
+router.post('/members/:id/reset-code', (req, res, next) => {
+  const target = users.byId(req.params.id);
+  if (!target) return next();
+  const code = generateResetCode();
+  const expiresAt = new Date(Date.now() + RESET_CODE_TTL_MS).toISOString();
+  users.setResetCode(target.id, sessions.sha256(code), expiresAt);
+  flash(
+    res,
+    'ok',
+    `Reset code for ${target.display_name} (${target.username}): ${code} — expires in 48 hours. ` +
+      `Text this to them now; it will not be shown again. They enter it at /reset.`
+  );
+  return res.redirect('/admin/members');
 });
 
 module.exports = router;

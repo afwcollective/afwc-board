@@ -52,14 +52,37 @@
       <div class="card">
         <p class="eyebrow eyebrow--muted">Quick links</p>
         <ul class="link-list">
+          <li><a href="/admin/members">Members — deactivate, promote, generate reset codes</a></li>
           <li><a href="/admin/meetings">Meetings — schedule, move the marker, cancel</a></li>
           <li><a href="/admin/announcements">Announcements — post, pin, remove</a></li>
           <li><a href="/admin/passcode">Group passcode — change the shared code</a></li>
           <li><a href="/">View the public front page</a></li>
         </ul>
         <p class="muted small">
-          Members, reset codes and backups arrive in a later build.
+          Backups arrive in a later build.
         </p>
+      </div>
+
+      <div class="card">
+        <p class="eyebrow eyebrow--muted">Reader watermark</p>
+        <p class="measure">
+          When on, every page in the draft reader shows a faint, tiled tag of
+          the person reading it — their name and username, unselectable and
+          too light to disturb reading. It never appears when printing (the
+          reader is already blanked on paper) and it doesn’t affect who can
+          copy or download anything; it just makes a leaked screenshot
+          attributable.
+        </p>
+        <p>
+          Currently
+          <span class="badge <%= watermarkOn ? 'badge--ok' : 'badge--warn' %>">
+            <%= watermarkOn ? 'On' : 'Off' %>
+          </span>
+        </p>
+        <form method="post" action="/admin/settings/watermark" class="inline-form">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <button class="btn btn--sm" type="submit"><%= watermarkOn ? 'Turn off' : 'Turn on' %></button>
+        </form>
       </div>
     </div>
   </div>

@@ -32,6 +32,27 @@ const users = {
       }),
   touchLogin: (id) =>
     db.prepare("UPDATE users SET last_login_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?").run(id),
+
+  /** Everyone, for the leader-only /admin/members table. Leaders first, then A–Z. */
+  list: () =>
+    db
+      .prepare(
+        `SELECT id, username, display_name, role, is_active, created_at, last_login_at
+           FROM users
+          ORDER BY role = 'leader' DESC, is_active DESC, display_name COLLATE NOCASE`
+      )
+      .all(),
+  setActive: (id, active) => db.prepare('UPDATE users SET is_active = ? WHERE id = ?').run(active ? 1 : 0, id),
+  setRole: (id, role) =>
+    db.prepare("UPDATE users SET role = ? WHERE id = ?").run(role === 'leader' ? 'leader' : 'member', id),
+  setPasswordHash: (id, password_hash) =>
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(password_hash, id),
+  setResetCode: (id, reset_code_hash, reset_expires_at) =>
+    db
+      .prepare('UPDATE users SET reset_code_hash = ?, reset_expires_at = ? WHERE id = ?')
+      .run(reset_code_hash, reset_expires_at, id),
+  clearResetCode: (id) =>
+    db.prepare('UPDATE users SET reset_code_hash = NULL, reset_expires_at = NULL WHERE id = ?').run(id),
 };
 
 /* ---------------- meetings ---------------- */

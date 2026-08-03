@@ -115,4 +115,12 @@ function csrfFail(req, res, next, why) {
   return next(err);
 }
 
-module.exports = { loadUser, requireMember, requireLeader, requireGuest, checkCsrf, noUsersYet };
+module.exports = {
+  loadUser,
+  requireMember,
+  requireLeader,
+  requireGuest,
+  checkCsrf,
+  noUsersYet,
+  safeEqual,
+};

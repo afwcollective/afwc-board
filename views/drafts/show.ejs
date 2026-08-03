@@ -96,6 +96,7 @@
       <% } else if (mode === 'html') { %>
         <article class="reader-pane reader-pane--html" data-pane>
           <div class="reader-page prose" data-page-content><%- firstPageHtml %></div>
+          <%- include('../partials/watermark') %>
         </article>
 
       <% } else if (mode === 'pdf') { %>
@@ -109,6 +110,7 @@
             <% }) %>
           </div>
           <noscript><p class="notice">The PDF reader needs JavaScript switched on.</p></noscript>
+          <%- include('../partials/watermark') %>
         </div>
 
       <% } else { %>
@@ -127,6 +129,7 @@
               </figure>
             <% }) %>
           </div>
+          <%- include('../partials/watermark') %>
         </div>
       <% } %>
     </div>

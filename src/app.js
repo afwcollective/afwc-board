@@ -18,6 +18,40 @@ app.set('layout', 'layout');
 app.use(expressLayouts);
 app.disable('x-powered-by');
 
+/**
+ * Security headers — app-wide, applied to every response before static or
+ * routed content. The CSP is written to be no looser than the app actually
+ * needs; each source is commented with what breaks if it's removed:
+ *   - img-src data:     docx-embedded figures (mammoth keeps data: URIs) and
+ *                        the reader watermark, both inline SVG/base64 images.
+ *   - style-src 'unsafe-inline'  the few inline style="" attributes (page-slot
+ *                        aspect-ratio, map-picker marker position, the
+ *                        watermark tile) — there is no <style> tag anywhere.
+ *   - worker-src 'self'  the vendored pdf.js worker, loaded from
+ *                        /vendor/pdfjs/pdf.worker.min.mjs (same origin).
+ *   - script-src 'self'  every <script> is either a same-origin file or the
+ *                        non-executing <script type="application/json"> the
+ *                        reader uses to hand data to reader-core.js; neither
+ *                        needs 'unsafe-inline'.
+ */
+app.use((req, res, next) => {
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('Referrer-Policy', 'same-origin');
+  res.set('X-Frame-Options', 'SAMEORIGIN');
+  res.set(
+    'Content-Security-Policy',
+    [
+      "default-src 'self'",
+      "img-src 'self' data:",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      "worker-src 'self'",
+      "frame-ancestors 'self'",
+    ].join('; ')
+  );
+  next();
+});
+
 app.use(
   express.static(path.join(__dirname, '..', 'public'), {
     maxAge: config.isProd ? '7d' : 0,
@@ -59,6 +93,7 @@ app.use(checkCsrf);
  */
 app.use('/', require('./routes/public'));
 app.use('/', require('./routes/auth'));
+app.use('/', require('./routes/account'));
 app.use('/admin', require('./routes/admin'));
 app.use('/board', require('./routes/board'));
 app.use('/drafts', require('./routes/drafts'));

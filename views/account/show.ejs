@@ -1,0 +1,42 @@
+<section class="section auth-section">
+  <div class="wrap wrap--narrow">
+    <p class="eyebrow">Your account</p>
+    <h1>Account</h1>
+    <p class="lede measure">
+      Signed in as <strong><%= currentUser.display_name %></strong>
+      (<span class="mono"><%= currentUser.username %></span>).
+    </p>
+
+    <%- include('../partials/form-errors', { errors: errors }) %>
+
+    <div class="card card--form">
+      <p class="form-legend">Change password</p>
+      <form method="post" action="/account/password" class="form">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+        <div class="field">
+          <label for="current_password">Current password</label>
+          <input id="current_password" name="current_password" type="password" required
+                 autocomplete="current-password">
+        </div>
+
+        <div class="field">
+          <label for="new_password">New password</label>
+          <input id="new_password" name="new_password" type="password" required minlength="8"
+                 autocomplete="new-password">
+        </div>
+
+        <div class="field">
+          <label for="new_password2">Confirm new password</label>
+          <input id="new_password2" name="new_password2" type="password" required minlength="8"
+                 autocomplete="new-password">
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn--primary">Change password</button>
+          <span class="form-aside">Changing it keeps this session signed in and signs out any others.</span>
+        </div>
+      </form>
+    </div>
+  </div>
+</section>

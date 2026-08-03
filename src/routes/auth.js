@@ -5,8 +5,10 @@ const { getSetting, setSetting } = require('../db');
 const { users } = require('../models');
 const { hashPassword, verifyPassword, hashSecret, verifySecret } = require('../auth/passwords');
 const sessions = require('../auth/sessions');
-const { noUsersYet, requireGuest } = require('../auth/middleware');
+const { noUsersYet, requireGuest, safeEqual } = require('../auth/middleware');
 const { flash } = require('../util/flash');
+const ratelimit = require('../util/ratelimit');
+const { normalizeResetCode } = require('../util/resetcode');
 
 const router = express.Router();
 
@@ -150,10 +152,23 @@ router.get('/login', (req, res) => {
 router.post('/login', (req, res) => {
   const { username, password } = req.body;
   const next = safeNext(req.body.next);
+
+  if (ratelimit.isBlocked(req.ip, username)) {
+    return res.status(429).render('auth/login', {
+      title: 'Sign in',
+      bodyClass: 'page-auth',
+      errors: ['Too many attempts — wait a few minutes and try again.'],
+      values: { username },
+      next,
+      setupNeeded: noUsersYet(),
+    });
+  }
+
   const user = users.byUsername(username);
   const ok = user && verifyPassword(String(password || ''), user.password_hash);
 
   if (!ok || !user.is_active) {
+    ratelimit.recordFailure(req.ip, username);
     const message = ok && !user.is_active
       ? 'That account is no longer active. Talk to a group leader.'
       : 'Username or password is not right.';
@@ -167,10 +182,75 @@ router.post('/login', (req, res) => {
     });
   }
 
+  ratelimit.clear(req.ip, username);
   sessions.createSession(res, user, req);
   users.touchLogin(user.id);
   flash(res, 'ok', `Signed in as ${user.display_name}.`);
   return res.redirect(next);
+});
+
+/* ------------------------------------------------------------------ reset */
+// Leader-issued codes, not email — see src/util/resetcode.js. Username + code
+// + new password; wrong/expired/reused all fail with the same generic
+// message so the form can't be used to probe which usernames exist.
+
+router.get('/reset', requireGuest, (req, res) => {
+  res.render('auth/reset', {
+    title: 'Reset your password',
+    bodyClass: 'page-auth',
+    errors: [],
+    values: {},
+  });
+});
+
+router.post('/reset', requireGuest, (req, res) => {
+  const { username, code, password, password2 } = req.body;
+  const GENERIC_ERROR = 'That reset code is not valid or has expired. Ask a leader for a new one.';
+
+  if (ratelimit.isBlocked(req.ip, username)) {
+    return res.status(429).render('auth/reset', {
+      title: 'Reset your password',
+      bodyClass: 'page-auth',
+      errors: ['Too many attempts — wait a few minutes and try again.'],
+      values: { username },
+    });
+  }
+
+  const errors = [];
+  if (String(password || '').length < MIN_PASSWORD) {
+    errors.push(`New password must be at least ${MIN_PASSWORD} characters.`);
+  }
+  if (password !== password2) errors.push('The two new passwords do not match.');
+
+  const user = users.byUsername(username);
+  const supplied = normalizeResetCode(code);
+  const validCode =
+    !!user &&
+    !!user.reset_code_hash &&
+    !!user.reset_expires_at &&
+    user.reset_expires_at > new Date().toISOString() &&
+    safeEqual(sessions.sha256(supplied), user.reset_code_hash);
+
+  if (!validCode) errors.push(GENERIC_ERROR);
+
+  if (errors.length) {
+    ratelimit.recordFailure(req.ip, username);
+    return res.status(400).render('auth/reset', {
+      title: 'Reset your password',
+      bodyClass: 'page-auth',
+      errors,
+      values: { username },
+    });
+  }
+
+  ratelimit.clear(req.ip, username);
+  users.setPasswordHash(user.id, hashPassword(password));
+  users.clearResetCode(user.id);
+  sessions.destroyAllForUser(user.id);
+  sessions.createSession(res, user, req);
+  users.touchLogin(user.id);
+  flash(res, 'ok', `Password reset. Signed in as ${user.display_name}.`);
+  return res.redirect('/');
 });
 
 /* ----------------------------------------------------------------- logout */

@@ -1,0 +1,83 @@
+<section class="section">
+  <div class="wrap">
+    <p class="eyebrow">Leaders only</p>
+    <h1>Members</h1>
+    <p class="lede measure">
+      Deactivating someone signs them out everywhere instantly — their session
+      cookie stops working on their very next click. There always has to be at
+      least one active leader, so the last one can’t demote or deactivate themselves.
+    </p>
+
+    <p class="form-actions form-actions--top">
+      <a class="btn btn--sm" href="/admin">Back to admin</a>
+    </p>
+
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Member</th>
+            <th>Role</th>
+            <th>Status</th>
+            <th>Joined</th>
+            <th class="right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% people.forEach(function (p) { %>
+            <tr>
+              <td>
+                <%= p.display_name %>
+                <% if (currentUser && p.id === currentUser.id) { %><span class="badge">You</span><% } %>
+                <br><span class="mono small muted">@<%= p.username %></span>
+              </td>
+              <td>
+                <span class="badge <%= p.role === 'leader' ? 'badge--leader' : '' %>">
+                  <%= p.role === 'leader' ? 'Leader' : 'Member' %>
+                </span>
+              </td>
+              <td>
+                <span class="badge <%= p.is_active ? 'badge--ok' : 'badge--warn' %>">
+                  <%= p.is_active ? 'Active' : 'Booted' %>
+                </span>
+              </td>
+              <td class="small"><%= dates.formatDateShort(p.created_at) %></td>
+              <td class="right nowrap">
+                <% if (p.is_active) { %>
+                  <form method="post" action="/admin/members/<%= p.id %>/deactivate" class="inline-form"
+                        onsubmit="return confirm('Deactivate ' + <%- JSON.stringify(p.display_name) %> + '? They will be signed out immediately.')">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                    <button class="btn btn--sm btn--danger" type="submit">Deactivate</button>
+                  </form>
+                <% } else { %>
+                  <form method="post" action="/admin/members/<%= p.id %>/reactivate" class="inline-form">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                    <button class="btn btn--sm" type="submit">Reactivate</button>
+                  </form>
+                <% } %>
+
+                <% if (p.role === 'leader') { %>
+                  <form method="post" action="/admin/members/<%= p.id %>/demote" class="inline-form">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                    <button class="btn btn--sm" type="submit">Remove leader</button>
+                  </form>
+                <% } else { %>
+                  <form method="post" action="/admin/members/<%= p.id %>/promote" class="inline-form">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                    <button class="btn btn--sm" type="submit">Make leader</button>
+                  </form>
+                <% } %>
+
+                <form method="post" action="/admin/members/<%= p.id %>/reset-code" class="inline-form"
+                      onsubmit="return confirm('Generate a reset code for ' + <%- JSON.stringify(p.display_name) %> + '?')">
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                  <button class="btn btn--sm" type="submit">Generate reset code</button>
+                </form>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>

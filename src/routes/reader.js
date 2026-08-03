@@ -24,12 +24,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const express = require('express');
 
-const { db } = require('../db');
+const { db, getSetting } = require('../db');
 const { requireMember } = require('../auth/middleware');
 const { flash } = require('../util/flash');
 const { mdToHtml, toPlainText } = require('../util/sanitize');
 const dates = require('../util/dates');
 const { resolveInDraft } = require('../services/ingest/paths');
+const { buildWatermarkDataUri } = require('../util/watermark');
 
 const router = express.Router();
 
@@ -192,6 +193,13 @@ router.get('/drafts/:id', requireMember, (req, res, next) => {
   const pageJs = ['/js/reader-core.js', '/js/comments.js'];
   if (draft.status === 'ready') pageJs.push(`/js/reader-${mode}.js`);
 
+  // Faint, tiled tag of the CURRENT VIEWER's name — see src/util/watermark.js.
+  // Built per-request (never cached) so it always reflects whoever is looking.
+  const watermarkOn = getSetting('watermark_on', '1') === '1';
+  const watermarkDataUri = watermarkOn
+    ? buildWatermarkDataUri(`${req.user.display_name}  ·  @${req.user.username}`)
+    : null;
+
   noStore(res);
   return res.render('drafts/show', {
     title: draft.title,
@@ -207,6 +215,8 @@ router.get('/drafts/:id', requireMember, (req, res, next) => {
     threadId: thread ? thread.id : null,
     firstPageHtml,
     canManage: canManageDraft(req.user, draft),
+    watermarkOn,
+    watermarkDataUri,
   });
 });
 

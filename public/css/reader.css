@@ -157,9 +157,26 @@
 /* ---------------- content panes ---------------- */
 
 .reader-pane {
+  position: relative; /* anchors .reader-watermark to the full scrollable pane, not the viewport */
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
+}
+
+/* ---------------- viewer-attribution watermark ----------------
+ * Tiled SVG data-URI built server-side per request (src/util/watermark.js) —
+ * covers the whole pane (not just the viewport) so it survives scrolling and
+ * the page swaps reader-core.js does inside [data-page-content]/img/canvas.
+ * pointer-events: none keeps it out of the way of selection-blocking, drag
+ * suppression and scrolling; it carries no interactive surface of its own.
+ */
+.reader-watermark {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  background-repeat: repeat;
+  background-position: 0 0;
 }
 
 .reader-pane--html {
@@ -444,6 +461,7 @@
 
 @media print {
   .reader-pane,
+  .reader-watermark,
   .reader-comments,
   .rc-tab,
   .reader-tools,

@@ -249,11 +249,12 @@ p:last-child { margin-bottom: 0; }
 }
 .nav a:not(.btn):hover { color: var(--blue); border-bottom-color: var(--blue); }
 .nav a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--blue); }
-.nav-user {
+.nav a.nav-user {
   font-family: var(--mono); font-size: 11px; letter-spacing: .12em;
   text-transform: uppercase; color: var(--ink-4);
   padding-left: 16px; border-left: 1px solid var(--hair-2);
 }
+.nav a.nav-user:hover, .nav a.nav-user[aria-current="page"] { color: var(--blue); }
 .nav-form { margin: 0; }
 
 /* ---------------------------------------------------------- hero */
@@ -594,3 +595,15 @@ p:last-child { margin-bottom: 0; }
   body { background: #fff; }
   .card { border: 1px solid #999; }
 }
+
+/* ============================================================
+   PHASE 6 ADDITIONS — members table + account page badges.
+   Small, global (reused across admin/members, and could be reused
+   anywhere else a leader/active-state badge is needed), so appended
+   here per the site.css convention instead of a page-specific file.
+   ============================================================ */
+
+.badge--ok { border-color: var(--green); color: var(--green); }
+.badge--leader { border-color: var(--blue); color: var(--blue); background: var(--blue-3); }
+.nowrap { white-space: nowrap; }
+.table td form.inline-form + form.inline-form { margin-left: 4px; }

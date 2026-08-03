@@ -15,7 +15,8 @@
         <% if (isLeader) { %>
           <a href="/admin" <%- currentPath.indexOf('/admin') === 0 ? 'aria-current="page"' : '' %>>Admin</a>
         <% } %>
-        <span class="nav-user" title="Signed in as <%= currentUser.username %>"><%= currentUser.display_name %></span>
+        <a href="/account" <%- currentPath === '/account' ? 'aria-current="page"' : '' %>
+           class="nav-user" title="Signed in as <%= currentUser.username %>"><%= currentUser.display_name %></a>
         <form method="post" action="/logout" class="nav-form">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>">
           <button type="submit" class="btn btn--sm">Sign out</button>

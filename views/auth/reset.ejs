@@ -1,0 +1,44 @@
+<section class="section auth-section">
+  <div class="wrap wrap--narrow">
+    <p class="eyebrow">Members</p>
+    <h1>Reset your password</h1>
+    <p class="lede measure">
+      Ask a group leader for a one-time reset code (they generate it from
+      <span class="mono small">/admin/members</span>), then enter it below
+      with a new password. The code only works once and expires after 48 hours.
+    </p>
+
+    <%- include('../partials/form-errors', { errors: errors }) %>
+
+    <form method="post" action="/reset" class="form">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+      <div class="field">
+        <label for="username">Username</label>
+        <input id="username" name="username" type="text" required autocomplete="username"
+               value="<%= values.username || '' %>" autofocus>
+      </div>
+
+      <div class="field">
+        <label for="code">Reset code</label>
+        <input id="code" name="code" type="text" required autocomplete="one-time-code"
+               placeholder="MAPLE-7391">
+      </div>
+
+      <div class="field">
+        <label for="password">New password</label>
+        <input id="password" name="password" type="password" required minlength="8" autocomplete="new-password">
+      </div>
+
+      <div class="field">
+        <label for="password2">Confirm new password</label>
+        <input id="password2" name="password2" type="password" required minlength="8" autocomplete="new-password">
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary">Reset password</button>
+        <span class="form-aside"><a href="/login">Back to sign in</a></span>
+      </div>
+    </form>
+  </div>
+</section>

@@ -1,0 +1,11 @@
+<%# Tiled, low-opacity viewer-attribution overlay for the reader pane.
+    Included as the LAST child of each [data-pane] element in drafts/show.ejs
+    so it paints on top of the page content, ignores clicks/selection, and —
+    because it lives outside the bit that reader-core/reader-*.js swap when
+    the page changes — stays put across page navigation in all three modes.
+    Data comes from src/util/watermark.js, built server-side from the
+    CURRENT VIEWER's own name; never cached (see reader.js noStore()). %>
+<% if (typeof watermarkOn !== 'undefined' && watermarkOn && watermarkDataUri) { %>
+  <div class="reader-watermark" aria-hidden="true"
+       style="background-image:url('<%= watermarkDataUri %>');"></div>
+<% } %>
