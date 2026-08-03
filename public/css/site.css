@@ -361,6 +361,11 @@ p:last-child { margin-bottom: 0; }
 .fm-stall--bar { fill: var(--blue-3); stroke: var(--ink-3); }
 .fm-stool { fill: none; stroke: var(--hair); stroke-width: 1.25; }
 .fm-table { fill: #f2efe9; stroke: var(--hair); stroke-width: 1.25; }
+.fm-bench { fill: var(--ink-4); stroke: none; opacity: .55; }
+.fm-stage { fill: var(--ink-3); stroke: var(--ink); stroke-width: 1; }
+.fm-entrance { fill: var(--blue-3); stroke: var(--blue); stroke-width: 1.25; }
+.fm-label--ondark { fill: #f4f7fa; }
+.fm-note--blue { fill: var(--blue); letter-spacing: .1em; font-size: 9.5px; }
 
 .fm-label {
   font-family: var(--mono); font-size: 13px; letter-spacing: .12em;

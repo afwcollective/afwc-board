@@ -10,11 +10,13 @@
  * Marker coordinates are stored as PERCENTAGES on purpose: this drawing can be
  * redrawn or re-proportioned later without invalidating saved meetings.
  *
- * Geometry follows the real building: 29th St to the north (top), Remington Ave
- * and the public entrance to the east (right), parking lot to the south. Food
- * stalls form an L — a column down the west side plus a row along the north
- * wall — with the R. Bar island in the south-centre of the open market floor
- * and The Garage event wing walled off on the far west.
+ * Geometry traced from the group's own furniture survey of the hall (PowerPoint
+ * walk-through, Aug 2026): Remington Ave along the top, parking along the right
+ * and bottom, stall bays across the bottom wall plus three tall bays on the
+ * left wall, the R. Bar island right of centre, a stage on the west side, a
+ * lounge and patio on the east, and two entrances. Furniture positions are a
+ * 1:1 translation of that file — regenerate via scratchpad rhouse-ppt/gen_svg.js
+ * if the group updates the layout.
  */
 var _mx = (typeof markerX !== 'undefined' && markerX !== null && markerX !== '') ? Number(markerX) : null;
 var _my = (typeof markerY !== 'undefined' && markerY !== null && markerY !== '') ? Number(markerY) : null;
@@ -22,101 +24,162 @@ var hasMarker = _mx !== null && _my !== null && !isNaN(_mx) && !isNaN(_my);
 var interactiveMap = (typeof interactive !== 'undefined') && !!interactive;
 var px = hasMarker ? (_mx / 100 * 1000) : 500;
 var py = hasMarker ? (_my / 100 * 600) : 300;
-
-// north wall bays, west -> east
-var northBays = [
-  { x: 370, label: 'KITSCH CAFE' },
-  { x: 550, label: 'THE POP-UP' },
-  { x: 730, label: 'KOSHARY CORNER' }
-];
-// west column bays, north -> south
-var westBays = ['AMANO TACO', 'BE.BIM', 'BRD', 'CREOLE SOUL', 'HILO', 'TAHARKA BROS.', 'STALL'];
-
-// communal seating in the open market area
-var longTables = [
-  { x: 440, y: 170 }, { x: 620, y: 170 },
-  { x: 440, y: 250 }, { x: 620, y: 250 },
-  { x: 440, y: 330 }, { x: 620, y: 330 }
-];
-var roundTables = [
-  { cx: 840, cy: 150 }, { cx: 840, cy: 215 }, { cx: 840, cy: 420 }
-];
 %>
 <figure class="floormap<%= interactiveMap ? ' floormap--interactive' : '' %>">
   <svg class="fm"
        viewBox="0 0 1000 600"
        role="img"
        <%- interactiveMap ? 'id="floormap-svg" tabindex="0"' : '' %>
-       aria-label="Stylised floor plan of R. House: food stalls along the west and north walls, the R. Bar island in the middle, market seating toward the Remington Avenue entrance<%= hasMarker ? ', with a red marker on the table where the group is meeting' : '' %>">
+       aria-label="Stylised floor plan of R. House: food stalls along the bottom and left walls, the R. Bar island right of centre, a stage to the left, lounge and patio to the right, entrances at the top and right<%= hasMarker ? ', with a red marker on the table where the group is meeting' : '' %>">
 
     <title>R. House floor plan</title>
 
-    <defs>
-      <pattern id="fm-hatch" width="12" height="12" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-        <line class="fm-hatch-line" x1="0" y1="0" x2="0" y2="12" />
-      </pattern>
-    </defs>
-
     <!-- street / lot labels, outside the building -->
-    <text class="fm-note" x="500" y="42" text-anchor="middle">29TH ST</text>
-    <text class="fm-note" x="500" y="576" text-anchor="middle">PARKING LOT</text>
-    <text class="fm-note" x="986" y="300" text-anchor="middle" transform="rotate(90 986 300)">REMINGTON AVE</text>
+    <text class="fm-note" x="500" y="42" text-anchor="middle">REMINGTON AVE</text>
+    <text class="fm-note" x="500" y="580" text-anchor="middle">PARKING LOT</text>
+    <text class="fm-note" x="962" y="300" text-anchor="middle" transform="rotate(90 962 300)">PARKING LOT</text>
 
-    <!-- floors -->
-    <rect class="fm-floor" x="250" y="60" width="670" height="480" />
-    <rect class="fm-floor fm-floor--annex" x="60" y="60" width="180" height="480" />
-    <rect x="60" y="60" width="180" height="480" fill="url(#fm-hatch)" stroke="none" />
+    <!-- floor + outer wall -->
+    <rect class="fm-floor" x="67.5" y="68" width="862.5" height="488" />
+    <rect class="fm-wall" x="67.5" y="68" width="862.5" height="488" />
 
-    <!-- outer wall, broken for the Remington Ave entrance -->
-    <path class="fm-wall" d="M920 250 V60 H60 V540 H920 V320" />
-    <!-- the garage is walled off from the market floor -->
-    <path class="fm-wall" d="M245 60 V540" />
+    <!-- stall bays: three tall on the left wall, the row along the bottom -->
+    <rect class="fm-stall" x="70.9" y="181.6" width="52.5" height="115.2" />
+    <text class="fm-label fm-label--sm" x="97.1" y="239.2" text-anchor="middle" transform="rotate(-90 97.1 239.2)">KOSHARY CORNER</text>
+    <rect class="fm-stall" x="70.9" y="300" width="52.5" height="116" />
+    <text class="fm-label fm-label--sm" x="97.1" y="358" text-anchor="middle" transform="rotate(-90 97.1 358)">HILO</text>
+    <rect class="fm-stall" x="70" y="424" width="52.5" height="59.2" />
+    <text class="fm-label fm-label--sm" x="96.2" y="453.6" text-anchor="middle" transform="rotate(-90 96.2 453.6)">TAHARKA BROS.</text>
 
-    <!-- entrance vestibule on Remington Ave -->
-    <path class="fm-wall" d="M920 250 H962 V320 H920" />
-    <path class="fm-door" d="M920 320 A 70 70 0 0 0 920 250" />
-    <text class="fm-note" x="905" y="290" text-anchor="middle" transform="rotate(-90 905 290)">ENTRANCE · REMINGTON AVE</text>
+    <rect class="fm-stall" x="157.4" y="500" width="64.3" height="56" />
+    <text class="fm-label fm-label--sm" x="189.5" y="532" text-anchor="middle">THE POP-UP</text>
+    <rect class="fm-stall" x="221" y="500" width="82" height="56" />
+    <rect class="fm-stall" x="303.2" y="500" width="65.5" height="56" />
+    <rect class="fm-stall" x="369.2" y="500" width="82" height="56" />
+    <text class="fm-label fm-label--sm" x="410.1" y="532" text-anchor="middle">BRD</text>
+    <rect class="fm-stall" x="450.3" y="500" width="82" height="56" />
+    <text class="fm-label fm-label--sm" x="491.3" y="532" text-anchor="middle">CREOLE SOUL</text>
+    <rect class="fm-stall" x="533.1" y="500" width="82" height="56" />
+    <text class="fm-label fm-label--sm" x="574.1" y="532" text-anchor="middle">BE.BIM</text>
+    <rect class="fm-stall" x="613.5" y="500" width="82" height="56" />
+    <text class="fm-label fm-label--sm" x="654.5" y="532" text-anchor="middle">AMANO TACO</text>
+    <rect class="fm-stall" x="696.3" y="500" width="82" height="56" />
+    <text class="fm-label fm-label--sm" x="737.3" y="532" text-anchor="middle">KITCHEN</text>
 
-    <!-- the garage: private event wing -->
-    <text class="fm-label" x="144" y="300" text-anchor="middle" transform="rotate(-90 144 300)">THE GARAGE</text>
-    <text class="fm-note" x="176" y="300" text-anchor="middle" transform="rotate(-90 176 300)">EVENT SPACE</text>
+    <!-- restrooms, south-west corner -->
+    <rect class="fm-service" x="70" y="510" width="73.3" height="44" />
+    <text class="fm-note" x="106.6" y="535" text-anchor="middle">RESTROOMS</text>
 
-    <!-- restrooms, north-west corner of the market floor -->
-    <rect class="fm-service" x="258" y="70" width="92" height="50" />
-    <text class="fm-note" x="304" y="99" text-anchor="middle">RESTROOMS</text>
+    <!-- stage (west) and lounge (east) -->
+    <rect class="fm-stage" x="189.2" y="182.2" width="151.5" height="37.8" />
+    <text class="fm-label fm-label--sm fm-label--ondark" x="265" y="205" text-anchor="middle">STAGE</text>
+    <rect class="fm-stage" x="757.7" y="268.5" width="41.9" height="93" />
+    <text class="fm-label fm-label--sm fm-label--ondark" x="778.6" y="315" text-anchor="middle" transform="rotate(-90 778.6 315)">LOUNGE</text>
 
-    <!-- north wall stall bays -->
-    <% northBays.forEach(function (b) { %>
-      <rect class="fm-stall" x="<%= b.x %>" y="70" width="170" height="50" />
-      <text class="fm-label fm-label--sm" x="<%= b.x + 85 %>" y="99" text-anchor="middle"><%= b.label %></text>
-    <% }) %>
+    <!-- r. bar island, right of centre -->
+    <rect class="fm-stall fm-stall--bar" x="586.7" y="283.2" width="95.8" height="101.8" rx="4" />
+    <text class="fm-label" x="634.6" y="339.1" text-anchor="middle">R. BAR</text>
 
-    <!-- west column stall bays -->
-    <% westBays.forEach(function (label, i) { %>
-      <rect class="fm-stall" x="258" y="<%= 132 + i * 54 %>" width="142" height="48" />
-      <text class="fm-label fm-label--sm" x="329" y="<%= 132 + i * 54 + 29 %>" text-anchor="middle"><%= label %></text>
-    <% }) %>
+    <!-- entrances: top (off Remington) and right (from the parking side) -->
+    <rect class="fm-entrance" x="381.3" y="182.8" width="71.6" height="20.8" rx="2" />
+    <text class="fm-note fm-note--blue" x="417.1" y="196.2" text-anchor="middle">ENTRANCE</text>
+    <rect class="fm-entrance" x="778.3" y="435.5" width="22.4" height="59.2" rx="2" />
+    <text class="fm-note fm-note--blue" x="789.5" y="465.1" text-anchor="middle" transform="rotate(-90 789.5 465.1)">ENTRANCE</text>
 
-    <!-- stairs, south-west corner of the market floor -->
-    <rect class="fm-service" x="258" y="506" width="82" height="30" />
-    <text class="fm-note" x="299" y="526" text-anchor="middle">STAIRS</text>
+    <!-- patio, north-east -->
+    <text class="fm-note" x="734.5" y="142.5" text-anchor="middle">PATIO</text>
 
-    <!-- market area: communal seating -->
-    <text class="fm-note" x="655" y="140" text-anchor="middle">MARKET AREA</text>
-    <% longTables.forEach(function (t) { %>
-      <rect class="fm-table" x="<%= t.x %>" y="<%= t.y %>" width="150" height="38" rx="12" />
-    <% }) %>
-    <% roundTables.forEach(function (t) { %>
-      <circle class="fm-table" cx="<%= t.cx %>" cy="<%= t.cy %>" r="22" />
-    <% }) %>
-
-    <!-- r. bar: freestanding island in the south-centre -->
-    <% for (var s = 0; s < 7; s += 1) { %>
-      <circle class="fm-stool" cx="<%= 500 + s * 45 %>" cy="388" r="7" />
-      <circle class="fm-stool" cx="<%= 500 + s * 45 %>" cy="482" r="7" />
-    <% } %>
-    <rect class="fm-stall fm-stall--bar" x="470" y="400" width="320" height="70" rx="4" />
-    <text class="fm-label" x="630" y="440" text-anchor="middle">R. BAR</text>
+    <!-- furniture — a 1:1 translation of the group's survey; do not hand-tune -->
+    <rect class="fm-table" x="871.9" y="115" width="33.8" height="36" rx="3" />
+    <rect class="fm-table" x="708.6" y="252.3" width="14.3" height="75.7" rx="3" />
+    <rect class="fm-table" x="708.2" y="342.7" width="14.3" height="75.7" rx="3" />
+    <rect class="fm-table" x="551.7" y="277.4" width="9.1" height="22.6" rx="3" />
+    <rect class="fm-table" x="552" y="305.4" width="9.1" height="22.6" rx="3" />
+    <rect class="fm-table" x="552.3" y="333.4" width="9.1" height="22.6" rx="3" />
+    <rect class="fm-table" x="552.6" y="361.4" width="9.1" height="22.6" rx="3" />
+    <rect class="fm-table" x="470.5" y="184.6" width="11.3" height="34.8" rx="3" />
+    <rect class="fm-table" x="501.4" y="184.6" width="11.3" height="34.8" rx="3" />
+    <rect class="fm-table" x="532.4" y="184.6" width="11.3" height="34.8" rx="3" />
+    <rect class="fm-table" x="563.3" y="184.6" width="11.3" height="34.8" rx="3" />
+    <rect class="fm-table" x="594.2" y="184.6" width="11.3" height="34.8" rx="3" />
+    <rect class="fm-table" x="625.2" y="184.6" width="11.3" height="34.8" rx="3" />
+    <rect class="fm-table" x="515.2" y="67.5" width="11.3" height="34.8" rx="3" />
+    <rect class="fm-table" x="594.8" y="67.5" width="11.3" height="34.8" rx="3" />
+    <rect class="fm-table" x="674.5" y="67.5" width="11.3" height="34.8" rx="3" />
+    <rect class="fm-table" x="754.1" y="67.5" width="11.3" height="34.8" rx="3" />
+    <rect class="fm-table" x="833.8" y="67.5" width="11.3" height="34.8" rx="3" />
+    <rect class="fm-table" x="850.3" y="203.5" width="55.8" height="15.8" rx="3" />
+    <rect class="fm-table" x="850.1" y="281.2" width="55.8" height="15.8" rx="3" />
+    <rect class="fm-table" x="849.9" y="358.9" width="55.8" height="15.8" rx="3" />
+    <rect class="fm-table" x="850.4" y="527.4" width="55.8" height="15.8" rx="3" />
+    <rect class="fm-table" x="460.5" y="247.4" width="25.4" height="11.2" rx="3" />
+    <rect class="fm-table" x="500.5" y="247.4" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="527.2" y="247.4" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="508.2" y="297.2" width="25.4" height="11.2" rx="3" />
+    <rect class="fm-table" x="503.8" y="337.3" width="15.4" height="13.8" rx="3" />
+    <rect class="fm-table" x="526.6" y="337.3" width="15.4" height="13.8" rx="3" />
+    <rect class="fm-table" x="503.2" y="370.9" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="525.9" y="370.9" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="451.7" y="370.9" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="476.5" y="370.9" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="452.6" y="418.2" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="477.4" y="418.2" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="504.5" y="416.9" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="527.2" y="416.9" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="320.3" y="458" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="357.3" y="421.3" width="11" height="51.5" rx="3" />
+    <rect class="fm-table" x="320.3" y="437" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="320.3" y="416" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="333.3" y="342" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="333.3" y="307.9" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="333.3" y="273.8" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="249.2" y="457.9" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="286.2" y="421.2" width="11" height="51.5" rx="3" />
+    <rect class="fm-table" x="249.2" y="437" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="249.2" y="415.9" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="175.5" y="271" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="215.1" y="421" width="11" height="51.5" rx="3" />
+    <rect class="fm-table" x="174.2" y="322.6" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="174.2" y="370.9" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="308.6" y="342.5" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="308.6" y="308.4" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="308.6" y="274.3" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="216.7" y="261.3" width="8.6" height="43.9" rx="3" />
+    <rect class="fm-table" x="248.5" y="261.5" width="8.6" height="43.9" rx="3" />
+    <rect class="fm-table" x="217" y="326.7" width="8.6" height="43.9" rx="3" />
+    <rect class="fm-table" x="248.8" y="327" width="8.6" height="43.9" rx="3" />
+    <rect class="fm-table" x="694.9" y="195.9" width="49.6" height="11" rx="3" />
+    <rect class="fm-table" x="762.4" y="196.5" width="29.7" height="9.2" rx="3" />
+    <rect class="fm-table" x="661.9" y="192.8" width="16.5" height="14.8" rx="3" />
+    <rect class="fm-table" x="762" y="228.7" width="29.7" height="9.2" rx="3" />
+    <rect class="fm-bench" x="355.4" y="253" width="9.1" height="123.8" rx="2" />
+    <rect class="fm-bench" x="459.6" y="282.1" width="27.2" height="56" rx="2" />
+    <rect class="fm-bench" x="765.3" y="401.4" width="27.2" height="20" rx="2" />
+    <rect class="fm-bench" x="458.8" y="181.6" width="3.8" height="34.8" rx="2" />
+    <rect class="fm-bench" x="489.9" y="182.2" width="3.8" height="34.8" rx="2" />
+    <rect class="fm-bench" x="520.9" y="182.8" width="3.8" height="34.8" rx="2" />
+    <rect class="fm-bench" x="551.9" y="183.4" width="3.8" height="34.8" rx="2" />
+    <rect class="fm-bench" x="582.9" y="184" width="3.8" height="34.8" rx="2" />
+    <rect class="fm-bench" x="614" y="184.6" width="3.8" height="34.8" rx="2" />
+    <rect class="fm-bench" x="645" y="185.2" width="3.8" height="34.8" rx="2" />
+    <rect class="fm-bench" x="460.6" y="68.8" width="9.9" height="99.2" rx="2" />
+    <rect class="fm-bench" x="363.8" y="68.8" width="9.9" height="99.2" rx="2" />
+    <rect class="fm-bench" x="835" y="410.7" width="93" height="10.6" rx="2" />
+    <rect class="fm-bench" x="836.3" y="504.7" width="93" height="10.6" rx="2" />
+    <rect class="fm-bench" x="292.2" y="252.3" width="9.1" height="123.8" rx="2" />
+    <rect class="fm-bench" x="342.5" y="252.3" width="32.6" height="5.4" rx="2" />
+    <rect class="fm-bench" x="280.4" y="252.1" width="32.6" height="5.4" rx="2" />
+    <rect class="fm-bench" x="342.5" y="374.8" width="32.6" height="5.4" rx="2" />
+    <rect class="fm-bench" x="280.4" y="374.5" width="32.6" height="5.4" rx="2" />
+    <rect class="fm-bench" x="356" y="181.6" width="15.2" height="30.9" rx="2" />
+    <rect class="fm-bench" x="284.1" y="260.9" width="3.8" height="47.1" rx="2" />
+    <rect class="fm-bench" x="284.1" y="322.2" width="3.8" height="47.1" rx="2" />
+    <rect class="fm-bench" x="367.7" y="322.8" width="3.8" height="47.1" rx="2" />
+    <rect class="fm-bench" x="367.7" y="263.1" width="3.8" height="47.1" rx="2" />
+    <rect class="fm-bench" x="247.1" y="96.2" width="48.4" height="50.6" rx="2" />
+    <rect class="fm-bench" x="254.6" y="103.2" width="33.8" height="36" rx="2" />
+    <rect class="fm-bench" x="152.7" y="96.6" width="48.4" height="50.6" rx="2" />
+    <rect class="fm-bench" x="160.1" y="103.6" width="33.8" height="36" rx="2" />
 
     <!-- meeting marker -->
     <% if (hasMarker || interactiveMap) { %>
@@ -137,7 +200,7 @@ var roundTables = [
     <% } else if (hasMarker) { %>
       Look for the red dot — that's our table.
     <% } else { %>
-      R. House, 301 W 29th St — stalls along the west and north walls, market seating in the middle.
+      R. House, 301 W 29th St — stalls along the bottom and left, the bar in the middle, stage to the left.
     <% } %>
   </figcaption>
 </figure>
