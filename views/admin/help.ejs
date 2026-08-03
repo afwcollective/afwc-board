@@ -1,0 +1,196 @@
+<section class="section">
+  <div class="wrap wrap--narrow">
+    <p class="eyebrow">Leaders only</p>
+    <h1>Leader handbook</h1>
+    <p class="lede measure">
+      Everything a volunteer leader needs to run this site, in plain language.
+      Nothing here needs a developer or a terminal — if a step says "click,"
+      that's the whole step.
+    </p>
+
+    <ul class="handbook-toc mono small">
+      <li><a href="#joining">How members join</a></li>
+      <li><a href="#meetings">Setting meetings and the map pin</a></li>
+      <li><a href="#announcements">Announcements</a></li>
+      <li><a href="#members">Booting and reactivating members</a></li>
+      <li><a href="#reset-codes">Password reset codes</a></li>
+      <li><a href="#watermark">The reader watermark</a></li>
+      <li><a href="#backups">Backups</a></li>
+      <li><a href="#protection">What draft protection can and can't do</a></li>
+    </ul>
+
+    <article class="handbook-section" id="joining">
+      <h2>How members join</h2>
+      <p>
+        Give someone the site's web address and the group passcode (see
+        <a href="/admin/passcode">Group passcode</a>) — that's the whole invite.
+        They visit <span class="mono">/register</span>, pick a username and
+        password, type the passcode, and they're in as a member.
+      </p>
+      <p>
+        The passcode is shared by the whole group, not per-person, so anyone who
+        has it can join. If it leaks to someone outside the group, change it on
+        the <a href="/admin/passcode">passcode page</a> and share the new one at
+        the next meeting — existing members keep their accounts; only new
+        sign-ups need the new code.
+      </p>
+    </article>
+
+    <article class="handbook-section" id="meetings">
+      <h2>Setting meetings and the map pin</h2>
+      <p>
+        Go to <a href="/admin/meetings">Meetings</a> and click "Schedule a
+        meeting." Pick the date and time, add a short note if you like ("bring
+        printed pages"), and click on the floor map where the group is sitting
+        — that drops the red marker. The public front page always shows the
+        <em>next</em> upcoming, non-cancelled meeting, so you don't need to
+        clean up old ones; just add the new one.
+      </p>
+      <p>
+        Didn't get a table yet? Save the meeting without clicking the map — the
+        front page will show the date and time with no marker until you edit it
+        later and click a spot.
+      </p>
+      <p>
+        Plans changed? Open the meeting from the Meetings list and either move
+        the marker and save, or mark it cancelled — cancelled meetings drop off
+        the front page but stay in the list so you can see what happened.
+      </p>
+    </article>
+
+    <article class="handbook-section" id="announcements">
+      <h2>Announcements</h2>
+      <p>
+        <a href="/admin/announcements">Announcements</a> is a simple bulletin
+        board on the front page — visible to everyone, even people who haven't
+        joined yet. Give it a title and write the body in plain text or simple
+        markdown (blank line between paragraphs, <span class="mono">**bold**</span>,
+        a dash for a list). "Pin" keeps an announcement at the top above
+        everything else; only pin the one or two things that matter most right
+        now. Removing an announcement is a soft delete — it disappears from the
+        site but isn't destroyed.
+      </p>
+    </article>
+
+    <article class="handbook-section" id="members">
+      <h2>Booting and reactivating members</h2>
+      <p>
+        On <a href="/admin/members">Members</a> you'll see everyone who has
+        ever registered. "Deactivate" boots someone: it signs them out of every
+        device immediately and blocks them from signing back in, but keeps
+        their posts and drafts intact. "Reactivate" undoes it — they can sign
+        in again with their old password.
+      </p>
+      <p>
+        You can also promote a member to leader or demote a leader back to
+        member from the same table. The app always keeps at least one active
+        leader — it will refuse to demote or deactivate the last one, so the
+        group can never accidentally lock itself out.
+      </p>
+    </article>
+
+    <article class="handbook-section" id="reset-codes">
+      <h2>Password reset codes</h2>
+      <p>
+        There's no email on this site, so password resets go through you. When
+        someone forgets their password, find them on
+        <a href="/admin/members">Members</a> and click "Generate reset code."
+        A one-time code appears on screen for 48 hours — copy it and text it to
+        them right then, because it is <strong>only shown once</strong>. They
+        go to <span class="mono">/reset</span>, enter their username and the
+        code, and pick a new password.
+      </p>
+      <p>
+        Codes expire automatically after 48 hours and a fresh code replaces any
+        unused one, so it's safe to generate a new code if the first text
+        didn't go through.
+      </p>
+    </article>
+
+    <article class="handbook-section" id="watermark">
+      <h2>The reader watermark</h2>
+      <p>
+        The draft reader can tag every page with a faint, unselectable overlay
+        of whoever is currently reading it — their display name and username,
+        tiled lightly across the page. It's off by no penalty to reading and on
+        by default. Toggle it from the <a href="/admin">admin dashboard</a>.
+      </p>
+      <p>
+        The point isn't to stop someone from screenshotting a page — it's to
+        make a leaked screenshot traceable back to whoever's account it came
+        from. See <a href="#protection">below</a> for the honest limits.
+      </p>
+    </article>
+
+    <article class="handbook-section" id="backups">
+      <h2>Backups</h2>
+      <p>
+        Click <strong>Download backup</strong> on the
+        <a href="/admin">admin dashboard</a> once a month or so — right after a
+        meeting is an easy habit to build. It downloads a single zip file
+        (named <span class="mono">afwc-backup-YYYY-MM-DD.zip</span>) straight
+        to your computer; nothing is stored anywhere else.
+      </p>
+      <p>Inside the zip:</p>
+      <ul>
+        <li>
+          <span class="mono">app.db</span> — the whole database: every member,
+          post, announcement, meeting, and comment.
+        </li>
+        <li>
+          <span class="mono">uploads/drafts/</span> — every uploaded draft file
+          (the originals, not just the converted pages), organized by draft.
+        </li>
+      </ul>
+      <p>
+        Together those two things are the <em>entire</em> site — if the server
+        ever needs to move to a new host, or something goes badly wrong, this
+        zip plus a fresh copy of the app's code is everything needed to bring
+        it back exactly as it was. Keep a couple of recent backups somewhere
+        safe (a laptop, cloud storage, wherever you'd keep anything else you
+        don't want to lose) rather than just the newest one.
+      </p>
+      <p>
+        The dashboard shows how long it's been since the last backup and turns
+        an amber warning color once it's been over 30 days (or if one has
+        never been taken) — a nudge, not an alarm.
+      </p>
+      <p>
+        Restoring is a hosting-level, slightly technical step (unzip the
+        backup into a fresh data volume) — see the "Backup and restore" section
+        of the project's <span class="mono">README.md</span> for the exact
+        commands. It's rare enough that it isn't worth automating into a
+        button, but it's a handful of copy-paste steps, not a rebuild.
+      </p>
+    </article>
+
+    <article class="handbook-section" id="protection">
+      <h2>What draft protection can and can't do</h2>
+      <p>
+        Members' drafts are locked behind sign-in — nobody outside the group
+        can open a draft link, originals are never downloadable, and the PDF
+        and image readers have no download or print buttons. That stops casual
+        sharing and keeps the site itself from handing out copies.
+      </p>
+      <p>
+        It is honest to say what it <strong>doesn't</strong> stop: anyone
+        determined enough can photograph or screenshot their screen, and
+        there's no technical way to prevent that — no web app can. The
+        watermark exists for exactly this gap: it doesn't block a screenshot,
+        it makes one traceable to the account that took it, which is usually
+        deterrent enough inside a small trusted group.
+      </p>
+      <p>
+        In short: the real protection here is <em>membership</em> — only
+        people the group has vouched for (via the shared passcode) can read
+        anything at all — plus attribution as a backstop. It was never meant
+        to be bulletproof against a member who wants to leak something on
+        purpose.
+      </p>
+    </article>
+
+    <p class="section-foot">
+      <a class="btn btn--sm" href="/admin">Back to admin</a>
+    </p>
+  </div>
+</section>

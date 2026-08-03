@@ -10,6 +10,7 @@ const { generateResetCode, RESET_CODE_TTL_MS } = require('../util/resetcode');
 const { mdToHtml, toPlainText } = require('../util/sanitize');
 const dates = require('../util/dates');
 const { flash } = require('../util/flash');
+const { streamBackup } = require('../services/backup');
 
 const router = express.Router();
 
@@ -31,17 +32,24 @@ const trim = (v, max = 200) => {
 
 /* -------------------------------------------------------------- dashboard */
 
+const BACKUP_STALE_MS = 30 * 24 * 3600e3;
+
 router.get('/', (req, res) => {
   const next = meetings.next();
+  const lastBackupAt = getSetting('last_backup_at', null);
+  const backupStale = !lastBackupAt || Date.now() - new Date(lastBackupAt).getTime() > BACKUP_STALE_MS;
   res.render('admin/dashboard', {
     title: 'Admin',
     bodyClass: 'page-admin',
+    pageCss: ['/css/admin.css'],
     meeting: next,
     memberCount: users.countActive(),
     leaderCount: users.countLeaders(),
     announcementCount: announcements.list(100).length,
     passcodeSet: !!getSetting('group_passcode_hash'),
     watermarkOn: getSetting('watermark_on', '1') === '1',
+    lastBackupAt,
+    backupStale,
   });
 });
 
@@ -364,6 +372,35 @@ router.post('/members/:id/reset-code', (req, res, next) => {
       `Text this to them now; it will not be shown again. They enter it at /reset.`
   );
   return res.redirect('/admin/members');
+});
+
+/* ---------------------------------------------------------------- backup */
+
+router.get('/backup.zip', async (req, res, next) => {
+  const stamp = dates.toDate(new Date()).toISOString().slice(0, 10);
+  res.set('Content-Type', 'application/zip');
+  res.set('Content-Disposition', `attachment; filename="afwc-backup-${stamp}.zip"`);
+  res.set('Cache-Control', 'private, no-store, max-age=0');
+  try {
+    await streamBackup(res);
+  } catch (err) {
+    console.error('[afwc] backup failed:', err);
+    if (!res.headersSent) return next(err);
+    // Headers (and possibly some bytes) already went out — nothing left to do
+    // but end the connection; a half-written zip will just fail to open.
+    return res.destroy();
+  }
+  return undefined;
+});
+
+/* ------------------------------------------------------------------ help */
+
+router.get('/help', (req, res) => {
+  res.render('admin/help', {
+    title: 'Leader handbook',
+    bodyClass: 'page-admin',
+    pageCss: ['/css/admin.css'],
+  });
 });
 
 module.exports = router;

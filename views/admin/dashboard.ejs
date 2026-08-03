@@ -56,10 +56,36 @@
           <li><a href="/admin/meetings">Meetings — schedule, move the marker, cancel</a></li>
           <li><a href="/admin/announcements">Announcements — post, pin, remove</a></li>
           <li><a href="/admin/passcode">Group passcode — change the shared code</a></li>
+          <li><a href="/admin/help">Leader handbook — how everything works</a></li>
           <li><a href="/">View the public front page</a></li>
         </ul>
-        <p class="muted small">
-          Backups arrive in a later build.
+      </div>
+
+      <div class="card <%= backupStale ? 'card--warn' : '' %>">
+        <p class="eyebrow eyebrow--muted">Backup</p>
+        <p class="measure">
+          One zip with the whole database and every uploaded draft — everything
+          needed to stand the app back up on a fresh host. See the
+          <a href="/admin/help#backups">leader handbook</a> for what's inside and
+          how to restore it.
+        </p>
+        <p>
+          <% if (lastBackupAt) { %>
+            Last backed up
+            <span class="badge <%= backupStale ? 'badge--warn' : 'badge--ok' %>">
+              <%= dates.relative(lastBackupAt) %>
+            </span>
+          <% } else { %>
+            <span class="badge badge--warn">Never backed up</span>
+          <% } %>
+        </p>
+        <% if (backupStale) { %>
+          <p class="small muted">
+            It's been over 30 days (or never) — worth downloading a fresh copy today.
+          </p>
+        <% } %>
+        <p>
+          <a class="btn btn--sm btn--primary" href="/admin/backup.zip">Download backup</a>
         </p>
       </div>
 

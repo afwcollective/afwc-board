@@ -1,0 +1,21 @@
+/* ============================================================
+   admin.css — small additions for the Phase 7 dashboard/help pages.
+   Kept separate from site.css (owned by another concurrent edit) so this
+   file only ever adds modifiers, never touches shared component rules.
+   ============================================================ */
+
+/* Backup card border goes amber when the last backup is stale or missing —
+   same --amber token the .badge--warn text already uses. */
+.card--warn { border-top-color: var(--amber, #b57a10); }
+
+/* Leader handbook: plain, short sections, readable measure. */
+.handbook-section { max-width: var(--measure, 62ch); }
+.handbook-section + .handbook-section {
+  margin-top: var(--s5, 32px);
+  padding-top: var(--s5, 32px);
+  border-top: 1px solid var(--hair-2, #dde3e9);
+}
+.handbook-section h2 { margin-top: 0; }
+.handbook-section h3 { margin-bottom: 6px; }
+.handbook-toc { margin: 0 0 var(--s5, 32px); padding-left: 1.2em; }
+.handbook-toc li { margin-bottom: 4px; }

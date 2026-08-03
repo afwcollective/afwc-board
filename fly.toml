@@ -1,0 +1,37 @@
+# Example fly.toml for AFWC Board — copy/adjust after `fly launch --no-deploy`.
+#
+# IMPORTANT: this app keeps its state in a local SQLite file + uploads on the
+# mounted volume, with no external database or object storage. It must run as
+# exactly ONE machine, ALWAYS ON. A second machine (or a second instance
+# briefly overlapping during a rolling deploy) would open a second SQLite
+# connection against the same file from a different volume mount and corrupt
+# or diverge the data. `min_machines_running = 1` plus a single [[vm]]/process
+# with no autoscaling is what keeps that from happening — do not raise the
+# machine count and do not enable `auto_stop_machines` beyond what's set here
+# without also rethinking storage.
+
+app = "afwc-board"
+primary_region = "iad"
+
+[build]
+
+[env]
+  NODE_ENV = "production"
+  DATA_DIR = "/data"
+  PORT = "8080"
+
+[mounts]
+  source = "afwc_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false   # keep the single machine running — see warning above
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512
