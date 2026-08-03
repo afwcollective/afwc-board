@@ -9,6 +9,12 @@
  *
  * Marker coordinates are stored as PERCENTAGES on purpose: this drawing can be
  * redrawn or re-proportioned later without invalidating saved meetings.
+ *
+ * Geometry follows the real building: 29th St to the north (top), Remington Ave
+ * and the public entrance to the east (right), parking lot to the south. Food
+ * stalls form an L — a column down the west side plus a row along the north
+ * wall — with the R. Bar island in the south-centre of the open market floor
+ * and The Garage event wing walled off on the far west.
  */
 var _mx = (typeof markerX !== 'undefined' && markerX !== null && markerX !== '') ? Number(markerX) : null;
 var _my = (typeof markerY !== 'undefined' && markerY !== null && markerY !== '') ? Number(markerY) : null;
@@ -16,23 +22,24 @@ var hasMarker = _mx !== null && _my !== null && !isNaN(_mx) && !isNaN(_my);
 var interactiveMap = (typeof interactive !== 'undefined') && !!interactive;
 var px = hasMarker ? (_mx / 100 * 1000) : 500;
 var py = hasMarker ? (_my / 100 * 600) : 300;
-var stalls = [
-  { x: 52,  y: 48,  w: 160, h: 80,  label: 'AMANO TACO' },
-  { x: 220, y: 48,  w: 160, h: 80,  label: 'BE.BIM' },
-  { x: 388, y: 48,  w: 160, h: 80,  label: 'BRD' },
-  { x: 556, y: 48,  w: 160, h: 80,  label: 'CREOLE SOUL' },
-  { x: 200, y: 470, w: 190, h: 80,  label: 'TAHARKA BROS.' },
-  { x: 560, y: 470, w: 156, h: 80,  label: 'THE POP-UP' }
+
+// north wall bays, west -> east
+var northBays = [
+  { x: 370, label: 'KITSCH CAFE' },
+  { x: 550, label: 'THE POP-UP' },
+  { x: 730, label: 'KOSHARY CORNER' }
 ];
-var sideStalls = [
-  { x: 52, y: 148, w: 96, h: 120, label: 'KITSCH CAFE' },
-  { x: 52, y: 276, w: 96, h: 120, label: 'KOSHARY CORNER' },
-  { x: 52, y: 404, w: 96, h: 96,  label: 'HILO' }
+// west column bays, north -> south
+var westBays = ['AMANO TACO', 'BE.BIM', 'BRD', 'CREOLE SOUL', 'HILO', 'TAHARKA BROS.', 'STALL'];
+
+// communal seating in the open market area
+var longTables = [
+  { x: 440, y: 170 }, { x: 620, y: 170 },
+  { x: 440, y: 250 }, { x: 620, y: 250 },
+  { x: 440, y: 330 }, { x: 620, y: 330 }
 ];
-var tables = [
-  { x: 200, y: 170 }, { x: 390, y: 170 },
-  { x: 200, y: 250 }, { x: 390, y: 250 },
-  { x: 200, y: 330 }, { x: 390, y: 330 }
+var roundTables = [
+  { cx: 840, cy: 150 }, { cx: 840, cy: 215 }, { cx: 840, cy: 420 }
 ];
 %>
 <figure class="floormap<%= interactiveMap ? ' floormap--interactive' : '' %>">
@@ -40,62 +47,76 @@ var tables = [
        viewBox="0 0 1000 600"
        role="img"
        <%- interactiveMap ? 'id="floormap-svg" tabindex="0"' : '' %>
-       aria-label="Stylised floor plan of R. House<%= hasMarker ? ', with a red marker on the table where the group is meeting' : '' %>">
+       aria-label="Stylised floor plan of R. House: food stalls along the west and north walls, the R. Bar island in the middle, market seating toward the Remington Avenue entrance<%= hasMarker ? ', with a red marker on the table where the group is meeting' : '' %>">
 
     <title>R. House floor plan</title>
 
-    <!-- floor -->
-    <path class="fm-floor" d="M36 34 H836 V566 H36 Z" />
-    <path class="fm-floor fm-floor--annex" d="M862 150 H966 V330 H862 Z" />
+    <defs>
+      <pattern id="fm-hatch" width="12" height="12" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+        <line class="fm-hatch-line" x1="0" y1="0" x2="0" y2="12" />
+      </pattern>
+    </defs>
 
-    <!-- perimeter wall, broken at the entrance -->
-    <path class="fm-wall" d="M410 566 H36 V34 H836 V566 H540" />
-    <!-- annex + its connecting corridor -->
-    <path class="fm-wall" d="M862 150 H966 V330 H862 Z" />
-    <path class="fm-corridor" d="M836 230 H862" />
-    <path class="fm-corridor" d="M836 260 H862" />
+    <!-- street / lot labels, outside the building -->
+    <text class="fm-note" x="500" y="42" text-anchor="middle">29TH ST</text>
+    <text class="fm-note" x="500" y="576" text-anchor="middle">PARKING LOT</text>
+    <text class="fm-note" x="986" y="300" text-anchor="middle" transform="rotate(90 986 300)">REMINGTON AVE</text>
 
-    <!-- entrance -->
-    <path class="fm-door" d="M410 566 A 66 66 0 0 1 476 500" />
-    <path class="fm-wall-stub" d="M410 566 V546 M540 566 V546" />
-    <text class="fm-note" x="475" y="590" text-anchor="middle">ENTRANCE · W 29TH ST</text>
+    <!-- floors -->
+    <rect class="fm-floor" x="250" y="60" width="670" height="480" />
+    <rect class="fm-floor fm-floor--annex" x="60" y="60" width="180" height="480" />
+    <rect x="60" y="60" width="180" height="480" fill="url(#fm-hatch)" stroke="none" />
 
-    <!-- perimeter stalls -->
-    <% stalls.forEach(function (s) { %>
-      <rect class="fm-stall" x="<%= s.x %>" y="<%= s.y %>" width="<%= s.w %>" height="<%= s.h %>" />
-      <text class="fm-label" x="<%= s.x + s.w / 2 %>" y="<%= s.y + s.h / 2 + 4 %>" text-anchor="middle"><%= s.label %></text>
+    <!-- outer wall, broken for the Remington Ave entrance -->
+    <path class="fm-wall" d="M920 250 V60 H60 V540 H920 V320" />
+    <!-- the garage is walled off from the market floor -->
+    <path class="fm-wall" d="M245 60 V540" />
+
+    <!-- entrance vestibule on Remington Ave -->
+    <path class="fm-wall" d="M920 250 H962 V320 H920" />
+    <path class="fm-door" d="M920 320 A 70 70 0 0 0 920 250" />
+    <text class="fm-note" x="905" y="290" text-anchor="middle" transform="rotate(-90 905 290)">ENTRANCE · REMINGTON AVE</text>
+
+    <!-- the garage: private event wing -->
+    <text class="fm-label" x="144" y="300" text-anchor="middle" transform="rotate(-90 144 300)">THE GARAGE</text>
+    <text class="fm-note" x="176" y="300" text-anchor="middle" transform="rotate(-90 176 300)">EVENT SPACE</text>
+
+    <!-- restrooms, north-west corner of the market floor -->
+    <rect class="fm-service" x="258" y="70" width="92" height="50" />
+    <text class="fm-note" x="304" y="99" text-anchor="middle">RESTROOMS</text>
+
+    <!-- north wall stall bays -->
+    <% northBays.forEach(function (b) { %>
+      <rect class="fm-stall" x="<%= b.x %>" y="70" width="170" height="50" />
+      <text class="fm-label fm-label--sm" x="<%= b.x + 85 %>" y="99" text-anchor="middle"><%= b.label %></text>
     <% }) %>
 
-    <% sideStalls.forEach(function (s) { %>
-      <rect class="fm-stall" x="<%= s.x %>" y="<%= s.y %>" width="<%= s.w %>" height="<%= s.h %>" />
-      <text class="fm-label fm-label--sm"
-            x="<%= s.x + s.w / 2 %>" y="<%= s.y + s.h / 2 + 4 %>"
-            text-anchor="middle"
-            transform="rotate(-90 <%= s.x + s.w / 2 %> <%= s.y + s.h / 2 + 4 %>)"><%= s.label %></text>
+    <!-- west column stall bays -->
+    <% westBays.forEach(function (label, i) { %>
+      <rect class="fm-stall" x="258" y="<%= 132 + i * 54 %>" width="142" height="48" />
+      <text class="fm-label fm-label--sm" x="329" y="<%= 132 + i * 54 + 29 %>" text-anchor="middle"><%= label %></text>
     <% }) %>
 
-    <!-- the bar: one long block down the east wall -->
-    <rect class="fm-stall fm-stall--bar" x="728" y="48" width="96" height="332" />
-    <text class="fm-label" x="776" y="218" text-anchor="middle" transform="rotate(-90 776 218)">R. BAR</text>
-    <% for (var i = 0; i < 6; i += 1) { %>
-      <circle class="fm-stool" cx="712" cy="<%= 84 + i * 52 %>" r="7" />
+    <!-- stairs, south-west corner of the market floor -->
+    <rect class="fm-service" x="258" y="506" width="82" height="30" />
+    <text class="fm-note" x="299" y="526" text-anchor="middle">STAIRS</text>
+
+    <!-- market area: communal seating -->
+    <text class="fm-note" x="655" y="140" text-anchor="middle">MARKET AREA</text>
+    <% longTables.forEach(function (t) { %>
+      <rect class="fm-table" x="<%= t.x %>" y="<%= t.y %>" width="150" height="38" rx="12" />
+    <% }) %>
+    <% roundTables.forEach(function (t) { %>
+      <circle class="fm-table" cx="<%= t.cx %>" cy="<%= t.cy %>" r="22" />
+    <% }) %>
+
+    <!-- r. bar: freestanding island in the south-centre -->
+    <% for (var s = 0; s < 7; s += 1) { %>
+      <circle class="fm-stool" cx="<%= 500 + s * 45 %>" cy="388" r="7" />
+      <circle class="fm-stool" cx="<%= 500 + s * 45 %>" cy="482" r="7" />
     <% } %>
-
-    <!-- the garage annex -->
-    <text class="fm-label fm-label--sm" x="914" y="240" text-anchor="middle" transform="rotate(-90 914 240)">THE GARAGE</text>
-
-    <!-- communal tables -->
-    <% tables.forEach(function (t) { %>
-      <rect class="fm-table" x="<%= t.x %>" y="<%= t.y %>" width="170" height="40" rx="13" />
-    <% }) %>
-    <circle class="fm-table" cx="640" cy="190" r="28" />
-    <circle class="fm-table" cx="640" cy="286" r="28" />
-    <circle class="fm-table" cx="640" cy="382" r="28" />
-    <rect class="fm-table" x="200" y="410" width="170" height="40" rx="13" />
-    <circle class="fm-table" cx="430" cy="430" r="24" />
-    <circle class="fm-table" cx="510" cy="430" r="24" />
-
-    <text class="fm-note" x="436" y="150" text-anchor="middle">COMMUNAL FLOOR</text>
+    <rect class="fm-stall fm-stall--bar" x="470" y="400" width="320" height="70" rx="4" />
+    <text class="fm-label" x="630" y="440" text-anchor="middle">R. BAR</text>
 
     <!-- meeting marker -->
     <% if (hasMarker || interactiveMap) { %>
@@ -116,7 +137,7 @@ var tables = [
     <% } else if (hasMarker) { %>
       Look for the red dot — that's our table.
     <% } else { %>
-      R. House, 301 W 29th St — stalls around the outside, communal tables in the middle.
+      R. House, 301 W 29th St — stalls along the west and north walls, market seating in the middle.
     <% } %>
   </figcaption>
 </figure>
