@@ -1,0 +1,8 @@
+<% if (Array.isArray(errors) && errors.length) { %>
+  <div class="form-errors" role="alert">
+    <p class="form-errors-head">That didn't go through:</p>
+    <ul>
+      <% errors.forEach(function (e) { %><li><%= e %></li><% }) %>
+    </ul>
+  </div>
+<% } %>

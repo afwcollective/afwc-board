@@ -1,0 +1,33 @@
+<section class="section auth-section">
+  <div class="wrap wrap--narrow">
+    <p class="eyebrow">Members</p>
+    <h1>Sign in</h1>
+
+    <%- include('../partials/form-errors', { errors: errors }) %>
+
+    <% if (setupNeeded) { %>
+      <p class="notice">This board hasn't been set up yet. <a href="/setup">Start here</a>.</p>
+    <% } %>
+
+    <form method="post" action="/login" class="form">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <input type="hidden" name="next" value="<%= next %>">
+
+      <div class="field">
+        <label for="username">Username</label>
+        <input id="username" name="username" type="text" required autocomplete="username"
+               value="<%= values.username || '' %>" autofocus>
+      </div>
+
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" required autocomplete="current-password">
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary">Sign in</button>
+        <span class="form-aside">No account? <a href="/register">Join with the group passcode</a>.</span>
+      </div>
+    </form>
+  </div>
+</section>

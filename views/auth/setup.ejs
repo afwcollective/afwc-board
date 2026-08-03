@@ -1,0 +1,71 @@
+<section class="section auth-section">
+  <div class="wrap wrap--narrow">
+    <p class="eyebrow">First run · One time only</p>
+    <h1>Set up your board</h1>
+    <p class="lede measure">
+      This creates the first group leader and the shared passcode the rest of the
+      group will use to register. Once it's done this page is gone for good.
+    </p>
+
+    <%- include('../partials/form-errors', { errors: errors }) %>
+
+    <form method="post" action="/setup" class="form" autocomplete="off">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+      <p class="form-legend">Your leader account</p>
+
+      <div class="field">
+        <label for="display_name">Display name</label>
+        <input id="display_name" name="display_name" type="text" required maxlength="60"
+               value="<%= values.display_name || '' %>" autocomplete="name">
+        <p class="hint">How the group sees you on the board.</p>
+      </div>
+
+      <div class="field">
+        <label for="username">Username</label>
+        <input id="username" name="username" type="text" required minlength="3" maxlength="32"
+               pattern="[A-Za-z0-9][A-Za-z0-9._\-]{2,31}"
+               value="<%= values.username || '' %>" autocomplete="username">
+        <p class="hint">Letters, numbers, dot, dash, underscore.</p>
+      </div>
+
+      <div class="field">
+        <label for="email">Email <span class="optional">(optional)</span></label>
+        <input id="email" name="email" type="email" maxlength="120" value="<%= values.email || '' %>">
+        <p class="hint">Only used so another leader can reach you. No mail is ever sent.</p>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" required minlength="8" autocomplete="new-password">
+        </div>
+        <div class="field">
+          <label for="password2">Repeat password</label>
+          <input id="password2" name="password2" type="password" required minlength="8" autocomplete="new-password">
+        </div>
+      </div>
+
+      <p class="form-legend">The group passcode</p>
+      <p class="hint hint--block">
+        Everyone who joins types this once. Say it out loud at a meeting; change it
+        any time from the admin console.
+      </p>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="passcode">Group passcode</label>
+          <input id="passcode" name="passcode" type="text" required minlength="4" maxlength="80" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="passcode2">Repeat passcode</label>
+          <input id="passcode2" name="passcode2" type="text" required minlength="4" maxlength="80" autocomplete="off">
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary">Create the board</button>
+      </div>
+    </form>
+  </div>
+</section>

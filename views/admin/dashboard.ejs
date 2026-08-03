@@ -1,0 +1,66 @@
+<section class="section">
+  <div class="wrap">
+    <p class="eyebrow">Leaders only</p>
+    <h1>Admin console</h1>
+    <p class="lede measure">
+      Everything the group needs is a button on this page. Nothing here needs a
+      developer, and nothing here can be undone by accident — deletes are soft.
+    </p>
+
+    <div class="stat-row">
+      <div class="stat">
+        <span class="stat-k">Active members</span>
+        <span class="stat-v"><%= memberCount %></span>
+      </div>
+      <div class="stat">
+        <span class="stat-k">Leaders</span>
+        <span class="stat-v"><%= leaderCount %></span>
+      </div>
+      <div class="stat">
+        <span class="stat-k">Announcements</span>
+        <span class="stat-v"><%= announcementCount %></span>
+      </div>
+      <div class="stat">
+        <span class="stat-k">Group passcode</span>
+        <span class="stat-v stat-v--sm"><%= passcodeSet ? 'Set' : 'Not set' %></span>
+      </div>
+    </div>
+
+    <div class="admin-grid">
+      <div class="card">
+        <p class="eyebrow eyebrow--muted">Next meeting</p>
+        <% if (meeting) { %>
+          <p class="meeting-date"><%= dates.formatDate(meeting.starts_at) %></p>
+          <p class="meeting-time"><%= dates.formatTime(meeting.starts_at) %></p>
+          <p class="muted">
+            <%= meeting.location_label || 'No table label set' %><br>
+            <% if (meeting.map_x !== null && meeting.map_y !== null) { %>
+              Marker at <%= meeting.map_x %>% / <%= meeting.map_y %>% of the map
+            <% } else { %>
+              No map marker yet — the front page will show the plain floor plan.
+            <% } %>
+          </p>
+          <p>
+            <a class="btn btn--sm" href="/admin/meetings/<%= meeting.id %>/edit">Edit this meeting</a>
+          </p>
+        <% } else { %>
+          <p class="empty">Nothing scheduled. The front page is showing "no meeting scheduled yet".</p>
+          <p><a class="btn btn--sm btn--primary" href="/admin/meetings/new">Schedule a meeting</a></p>
+        <% } %>
+      </div>
+
+      <div class="card">
+        <p class="eyebrow eyebrow--muted">Quick links</p>
+        <ul class="link-list">
+          <li><a href="/admin/meetings">Meetings — schedule, move the marker, cancel</a></li>
+          <li><a href="/admin/announcements">Announcements — post, pin, remove</a></li>
+          <li><a href="/admin/passcode">Group passcode — change the shared code</a></li>
+          <li><a href="/">View the public front page</a></li>
+        </ul>
+        <p class="muted small">
+          Members, reset codes and backups arrive in a later build.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>

@@ -1,0 +1,10 @@
+<section class="section auth-section">
+  <div class="wrap wrap--narrow">
+    <p class="eyebrow"><%= status %></p>
+    <h1><%= status === 403 ? "You can't get there from here." : 'Something went wrong.' %></h1>
+    <p class="lede measure"><%= message %></p>
+    <p class="form-actions">
+      <a class="btn btn--primary" href="/">Back to the front page</a>
+    </p>
+  </div>
+</section>

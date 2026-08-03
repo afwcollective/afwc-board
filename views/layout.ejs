@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<%- include('partials/head') %>
+<body class="<%= typeof bodyClass === 'string' ? bodyClass : '' %>">
+  <a class="skip" href="#main">Skip to content</a>
+  <%- include('partials/nav') %>
+
+  <main id="main">
+    <%- include('partials/flash') %>
+    <%- body %>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <p class="footer-mark"><%= site.group %></p>
+      <p class="footer-note">
+        <%= site.venue %> · <%= site.venueAddress %> · all times Baltimore (Eastern)
+      </p>
+      <nav class="footer-nav" aria-label="Footer">
+        <a href="/">Front page</a>
+        <% if (currentUser) { %>
+          <a href="/board">Board</a>
+          <a href="/drafts">Drafts</a>
+          <% if (isLeader) { %><a href="/admin">Admin</a><% } %>
+        <% } else { %>
+          <a href="/login">Sign in</a>
+          <a href="/register">Join</a>
+        <% } %>
+      </nav>
+    </div>
+  </footer>
+
+  <% (typeof pageJs !== 'undefined' && Array.isArray(pageJs) ? pageJs : []).forEach(function (src) { %>
+    <script src="<%= src %>" defer></script>
+  <% }) %>
+</body>
+</html>

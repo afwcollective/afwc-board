@@ -1,0 +1,127 @@
+<section class="hero paint-hero">
+  <div class="wrap paint-inner">
+    <p class="eyebrow">
+      Baltimore · R. House ·
+      <% if (meeting) { %>Next: <%= dates.weekday(meeting.starts_at) %><% } else { %>Fiction, out loud<% } %>
+    </p>
+
+    <div class="paint">
+      <div class="paint-img" aria-hidden="true"></div>
+      <h1>The Agile Fiction Writers Collective</h1>
+    </div>
+
+    <div class="hero-foot">
+      <p class="lede">
+        We meet at a food hall in Remington and read each other's pages. This board
+        is where the time, the table and the drafts live.
+      </p>
+      <div class="hero-actions">
+        <% if (firstRun) { %>
+          <a class="btn btn--primary" href="/setup">Set up your board</a>
+        <% } else if (!currentUser) { %>
+          <a class="btn btn--primary" href="/register">Join the board</a>
+          <a class="btn" href="/login">Sign in</a>
+        <% } else { %>
+          <a class="btn btn--primary" href="/drafts">Draft library</a>
+          <a class="btn" href="/board">Discussion board</a>
+        <% } %>
+      </div>
+    </div>
+  </div>
+</section>
+
+<% if (firstRun) { %>
+  <section class="section">
+    <div class="wrap">
+      <div class="card card--lead">
+        <p class="eyebrow">First run</p>
+        <h2>Nobody has set this board up yet.</h2>
+        <p class="measure">
+          The first person through the door becomes a group leader, picks the shared
+          passcode everyone else registers with, and sets the next meeting.
+        </p>
+        <p><a class="btn btn--primary" href="/setup">Set up your board</a></p>
+      </div>
+    </div>
+  </section>
+<% } else { %>
+
+  <section class="section" id="next-meeting">
+    <div class="wrap">
+      <p class="section-label">Next meeting</p>
+
+      <div class="meeting-grid">
+        <div class="card card--meeting">
+          <% if (meeting) { %>
+            <p class="eyebrow eyebrow--muted"><%= dates.relative(meeting.starts_at) %></p>
+            <p class="meeting-date">
+              <time datetime="<%= dates.isoAttr(meeting.starts_at) %>"><%= dates.formatDate(meeting.starts_at) %></time>
+            </p>
+            <p class="meeting-time"><%= dates.formatTime(meeting.starts_at) %></p>
+            <% if (meeting.title) { %><h2 class="meeting-title"><%= meeting.title %></h2><% } %>
+
+            <dl class="meeting-facts">
+              <dt>Where</dt>
+              <dd><%= site.venue %> · <%= site.venueAddress %></dd>
+              <% if (meeting.location_label) { %>
+                <dt>Our table</dt>
+                <dd><span class="badge badge--rhouse">Look for us</span> <%= meeting.location_label %></dd>
+              <% } %>
+            </dl>
+
+            <% if (meeting.notes) { %>
+              <p class="meeting-notes"><%= meeting.notes %></p>
+            <% } %>
+          <% } else { %>
+            <p class="eyebrow eyebrow--muted">Nothing on the calendar</p>
+            <h2 class="meeting-title">No meeting scheduled yet.</h2>
+            <p class="measure">
+              A group leader will post the next date here. Check back, or
+              <% if (currentUser) { %>keep an eye on the announcements below.<% } else { %>
+                <a href="/register">join the board</a> so you don't miss it.<% } %>
+            </p>
+            <% if (isLeader) { %>
+              <p><a class="btn btn--primary" href="/admin/meetings/new">Schedule one</a></p>
+            <% } %>
+          <% } %>
+        </div>
+
+        <div class="map-panel">
+          <%- include('partials/floormap', {
+                markerX: meeting ? meeting.map_x : null,
+                markerY: meeting ? meeting.map_y : null,
+                interactive: false
+              }) %>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--band" id="announcements">
+    <div class="wrap">
+      <p class="section-label">Announcements</p>
+
+      <% if (!announcements.length) { %>
+        <p class="empty">No announcements yet. When a leader posts one it shows up here.</p>
+      <% } else { %>
+        <ul class="ann-list">
+          <% announcements.forEach(function (a) { %>
+            <li class="card ann<%= a.is_pinned ? ' ann--pinned' : '' %>">
+              <p class="ann-meta">
+                <% if (a.is_pinned) { %><span class="badge">Pinned</span><% } %>
+                <time datetime="<%= dates.isoAttr(a.created_at) %>"><%= dates.formatDateShort(a.created_at) %></time>
+                <% if (a.author_name) { %><span class="ann-author">· <%= a.author_name %></span><% } %>
+              </p>
+              <h3 class="ann-title"><%= a.title %></h3>
+              <div class="prose"><%- a.body_html %></div>
+            </li>
+          <% }) %>
+        </ul>
+      <% } %>
+
+      <% if (isLeader) { %>
+        <p class="section-foot"><a class="btn btn--sm" href="/admin/announcements">Post an announcement</a></p>
+      <% } %>
+    </div>
+  </section>
+<% } %>

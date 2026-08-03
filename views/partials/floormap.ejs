@@ -1,0 +1,122 @@
+<%
+/*
+ * R. House floor map — shared by the public landing page (read-only) and the
+ * admin meeting form (interactive, driven by /js/map-picker.js).
+ *
+ * Locals:
+ *   markerX, markerY  percent of the viewBox (0–100), or null for "no marker"
+ *   interactive       true  -> clicking sets #map_x/#map_y and moves the marker
+ *
+ * Marker coordinates are stored as PERCENTAGES on purpose: this drawing can be
+ * redrawn or re-proportioned later without invalidating saved meetings.
+ */
+var _mx = (typeof markerX !== 'undefined' && markerX !== null && markerX !== '') ? Number(markerX) : null;
+var _my = (typeof markerY !== 'undefined' && markerY !== null && markerY !== '') ? Number(markerY) : null;
+var hasMarker = _mx !== null && _my !== null && !isNaN(_mx) && !isNaN(_my);
+var interactiveMap = (typeof interactive !== 'undefined') && !!interactive;
+var px = hasMarker ? (_mx / 100 * 1000) : 500;
+var py = hasMarker ? (_my / 100 * 600) : 300;
+var stalls = [
+  { x: 52,  y: 48,  w: 160, h: 80,  label: 'AMANO TACO' },
+  { x: 220, y: 48,  w: 160, h: 80,  label: 'BE.BIM' },
+  { x: 388, y: 48,  w: 160, h: 80,  label: 'BRD' },
+  { x: 556, y: 48,  w: 160, h: 80,  label: 'CREOLE SOUL' },
+  { x: 200, y: 470, w: 190, h: 80,  label: 'TAHARKA BROS.' },
+  { x: 560, y: 470, w: 156, h: 80,  label: 'THE POP-UP' }
+];
+var sideStalls = [
+  { x: 52, y: 148, w: 96, h: 120, label: 'KITSCH CAFE' },
+  { x: 52, y: 276, w: 96, h: 120, label: 'KOSHARY CORNER' },
+  { x: 52, y: 404, w: 96, h: 96,  label: 'HILO' }
+];
+var tables = [
+  { x: 200, y: 170 }, { x: 390, y: 170 },
+  { x: 200, y: 250 }, { x: 390, y: 250 },
+  { x: 200, y: 330 }, { x: 390, y: 330 }
+];
+%>
+<figure class="floormap<%= interactiveMap ? ' floormap--interactive' : '' %>">
+  <svg class="fm"
+       viewBox="0 0 1000 600"
+       role="img"
+       <%- interactiveMap ? 'id="floormap-svg" tabindex="0"' : '' %>
+       aria-label="Stylised floor plan of R. House<%= hasMarker ? ', with a red marker on the table where the group is meeting' : '' %>">
+
+    <title>R. House floor plan</title>
+
+    <!-- floor -->
+    <path class="fm-floor" d="M36 34 H836 V566 H36 Z" />
+    <path class="fm-floor fm-floor--annex" d="M862 150 H966 V330 H862 Z" />
+
+    <!-- perimeter wall, broken at the entrance -->
+    <path class="fm-wall" d="M410 566 H36 V34 H836 V566 H540" />
+    <!-- annex + its connecting corridor -->
+    <path class="fm-wall" d="M862 150 H966 V330 H862 Z" />
+    <path class="fm-corridor" d="M836 230 H862" />
+    <path class="fm-corridor" d="M836 260 H862" />
+
+    <!-- entrance -->
+    <path class="fm-door" d="M410 566 A 66 66 0 0 1 476 500" />
+    <path class="fm-wall-stub" d="M410 566 V546 M540 566 V546" />
+    <text class="fm-note" x="475" y="590" text-anchor="middle">ENTRANCE · W 29TH ST</text>
+
+    <!-- perimeter stalls -->
+    <% stalls.forEach(function (s) { %>
+      <rect class="fm-stall" x="<%= s.x %>" y="<%= s.y %>" width="<%= s.w %>" height="<%= s.h %>" />
+      <text class="fm-label" x="<%= s.x + s.w / 2 %>" y="<%= s.y + s.h / 2 + 4 %>" text-anchor="middle"><%= s.label %></text>
+    <% }) %>
+
+    <% sideStalls.forEach(function (s) { %>
+      <rect class="fm-stall" x="<%= s.x %>" y="<%= s.y %>" width="<%= s.w %>" height="<%= s.h %>" />
+      <text class="fm-label fm-label--sm"
+            x="<%= s.x + s.w / 2 %>" y="<%= s.y + s.h / 2 + 4 %>"
+            text-anchor="middle"
+            transform="rotate(-90 <%= s.x + s.w / 2 %> <%= s.y + s.h / 2 + 4 %>)"><%= s.label %></text>
+    <% }) %>
+
+    <!-- the bar: one long block down the east wall -->
+    <rect class="fm-stall fm-stall--bar" x="728" y="48" width="96" height="332" />
+    <text class="fm-label" x="776" y="218" text-anchor="middle" transform="rotate(-90 776 218)">R. BAR</text>
+    <% for (var i = 0; i < 6; i += 1) { %>
+      <circle class="fm-stool" cx="712" cy="<%= 84 + i * 52 %>" r="7" />
+    <% } %>
+
+    <!-- the garage annex -->
+    <text class="fm-label fm-label--sm" x="914" y="240" text-anchor="middle" transform="rotate(-90 914 240)">THE GARAGE</text>
+
+    <!-- communal tables -->
+    <% tables.forEach(function (t) { %>
+      <rect class="fm-table" x="<%= t.x %>" y="<%= t.y %>" width="170" height="40" rx="13" />
+    <% }) %>
+    <circle class="fm-table" cx="640" cy="190" r="28" />
+    <circle class="fm-table" cx="640" cy="286" r="28" />
+    <circle class="fm-table" cx="640" cy="382" r="28" />
+    <rect class="fm-table" x="200" y="410" width="170" height="40" rx="13" />
+    <circle class="fm-table" cx="430" cy="430" r="24" />
+    <circle class="fm-table" cx="510" cy="430" r="24" />
+
+    <text class="fm-note" x="436" y="150" text-anchor="middle">COMMUNAL FLOOR</text>
+
+    <!-- meeting marker -->
+    <% if (hasMarker || interactiveMap) { %>
+      <g id="fm-marker" class="fm-marker" transform="translate(<%= px %>, <%= py %>)"<%- hasMarker ? '' : ' style="display:none"' %>>
+        <circle class="fm-pulse" r="15" />
+        <circle class="fm-dot" r="9" />
+        <g class="fm-flag" transform="translate(0, -26)">
+          <rect x="-48" y="-16" width="96" height="21" rx="2" />
+          <text x="0" y="-1" text-anchor="middle">WE'RE HERE</text>
+        </g>
+      </g>
+    <% } %>
+  </svg>
+
+  <figcaption class="floormap-caption">
+    <% if (interactiveMap) { %>
+      Click the map to drop the marker where the group will be sitting.
+    <% } else if (hasMarker) { %>
+      Look for the red dot — that's our table.
+    <% } else { %>
+      R. House, 301 W 29th St — stalls around the outside, communal tables in the middle.
+    <% } %>
+  </figcaption>
+</figure>

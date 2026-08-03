@@ -1,0 +1,12 @@
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><%= typeof title === 'string' && title ? title + ' · ' + site.name : site.name %></title>
+  <meta name="description" content="<%= site.group %> — next meeting, where we're sitting at <%= site.venue %>, announcements and the members' draft library.">
+  <meta name="color-scheme" content="light">
+  <link rel="icon" href="/img/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/site.css">
+  <% (typeof pageCss !== 'undefined' && Array.isArray(pageCss) ? pageCss : []).forEach(function (href) { %>
+    <link rel="stylesheet" href="<%= href %>">
+  <% }) %>
+</head>

@@ -1,0 +1,70 @@
+<section class="section">
+  <div class="wrap">
+    <p class="eyebrow">Leaders only</p>
+    <h1>Meetings</h1>
+
+    <p class="form-actions form-actions--top">
+      <a class="btn btn--primary" href="/admin/meetings/new">Schedule a meeting</a>
+      <a class="btn btn--sm" href="/admin">Back to admin</a>
+    </p>
+
+    <p class="section-label">Upcoming</p>
+    <% if (!upcoming.length) { %>
+      <p class="empty">Nothing scheduled yet.</p>
+    <% } else { %>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr><th>When</th><th>Title</th><th>Table</th><th>Marker</th><th class="right">Actions</th></tr>
+          </thead>
+          <tbody>
+            <% upcoming.forEach(function (m) { %>
+              <tr<%- m.is_cancelled ? ' class="is-cancelled"' : '' %>>
+                <td>
+                  <%= dates.formatDateShort(m.starts_at) %>, <%= dates.formatTime(m.starts_at) %>
+                  <% if (m.is_cancelled) { %><span class="badge badge--warn">Cancelled</span><% } %>
+                </td>
+                <td><%= m.title || '—' %></td>
+                <td><%= m.location_label || '—' %></td>
+                <td class="mono small">
+                  <%= (m.map_x !== null && m.map_y !== null) ? (m.map_x + ' / ' + m.map_y) : '—' %>
+                </td>
+                <td class="right nowrap">
+                  <a class="btn btn--sm" href="/admin/meetings/<%= m.id %>/edit">Edit</a>
+                  <form method="post" action="/admin/meetings/<%= m.id %>/cancel" class="inline-form">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                    <button class="btn btn--sm" type="submit"><%= m.is_cancelled ? 'Un-cancel' : 'Cancel' %></button>
+                  </form>
+                  <form method="post" action="/admin/meetings/<%= m.id %>/delete" class="inline-form"
+                        onsubmit="return confirm('Remove this meeting from the board?')">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                    <button class="btn btn--sm btn--danger" type="submit">Remove</button>
+                  </form>
+                </td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+
+    <% if (past.length) { %>
+      <p class="section-label">Recently past</p>
+      <div class="table-wrap">
+        <table class="table table--quiet">
+          <thead><tr><th>When</th><th>Title</th><th>Table</th><th class="right"></th></tr></thead>
+          <tbody>
+            <% past.forEach(function (m) { %>
+              <tr>
+                <td><%= dates.formatDateShort(m.starts_at) %>, <%= dates.formatTime(m.starts_at) %></td>
+                <td><%= m.title || '—' %></td>
+                <td><%= m.location_label || '—' %></td>
+                <td class="right"><a class="btn btn--sm" href="/admin/meetings/<%= m.id %>/edit">Edit</a></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+  </div>
+</section>

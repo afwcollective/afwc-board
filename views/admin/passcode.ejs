@@ -1,0 +1,37 @@
+<section class="section auth-section">
+  <div class="wrap wrap--narrow">
+    <p class="eyebrow">Leaders only</p>
+    <h1>Group passcode</h1>
+    <p class="lede measure">
+      New members type this once when they register. Only its hash is stored, so
+      nobody — including you — can read the current one back out of the app. If it
+      has been forgotten, set a new one and say it out loud at the next meeting.
+    </p>
+
+    <%- include('../partials/form-errors', { errors: errors }) %>
+
+    <p class="notice">
+      Status: <strong><%= passcodeSet ? 'a passcode is set' : 'no passcode set — registration is closed' %></strong>
+    </p>
+
+    <form method="post" action="/admin/passcode" class="form" autocomplete="off">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+      <div class="field">
+        <label for="passcode">New group passcode</label>
+        <input id="passcode" name="passcode" type="text" required minlength="4" maxlength="80" autocomplete="off">
+        <p class="hint">Four characters or more. Something sayable across a noisy food hall.</p>
+      </div>
+
+      <div class="field">
+        <label for="passcode2">Repeat it</label>
+        <input id="passcode2" name="passcode2" type="text" required minlength="4" maxlength="80" autocomplete="off">
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary">Change the passcode</button>
+        <a class="btn btn--sm" href="/admin">Back to admin</a>
+      </div>
+    </form>
+  </div>
+</section>

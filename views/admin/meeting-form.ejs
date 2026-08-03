@@ -1,0 +1,75 @@
+<section class="section">
+  <div class="wrap">
+    <p class="eyebrow">Leaders only</p>
+    <h1><%= meeting ? 'Edit meeting' : 'Schedule a meeting' %></h1>
+
+    <%- include('../partials/form-errors', { errors: errors }) %>
+
+    <form method="post" action="<%= meeting ? '/admin/meetings/' + meeting.id : '/admin/meetings' %>"
+          class="form meeting-form" id="meeting-form">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+      <div class="meeting-form-grid">
+        <div class="meeting-form-fields">
+          <div class="field">
+            <label for="starts_at_local">Date and time <span class="optional">(Baltimore time)</span></label>
+            <input id="starts_at_local" name="starts_at_local" type="datetime-local" required
+                   value="<%= values.starts_at_local %>">
+          </div>
+
+          <div class="field">
+            <label for="title">Title <span class="optional">(optional)</span></label>
+            <input id="title" name="title" type="text" maxlength="120" value="<%= values.title %>"
+                   placeholder="Critique night">
+          </div>
+
+          <div class="field">
+            <label for="location_label">Where we're sitting</label>
+            <input id="location_label" name="location_label" type="text" maxlength="120"
+                   value="<%= values.location_label %>"
+                   placeholder="Long communal table by the coffee stall">
+            <p class="hint">Shown next to the map on the front page. Plain words beat coordinates.</p>
+          </div>
+
+          <div class="field">
+            <label for="notes">Notes <span class="optional">(optional)</span></label>
+            <textarea id="notes" name="notes" rows="4" maxlength="2000"
+                      placeholder="Bring 10 pages. Parking is easiest on Sisson St."><%= values.notes %></textarea>
+          </div>
+
+          <div class="field field--check">
+            <label class="check">
+              <input type="checkbox" name="is_cancelled" value="1" <%= values.is_cancelled ? 'checked' : '' %>>
+              <span>This meeting is cancelled</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="meeting-form-map">
+          <p class="section-label">The table</p>
+          <%- include('../partials/floormap', {
+                markerX: values.map_x,
+                markerY: values.map_y,
+                interactive: true
+              }) %>
+
+          <input type="hidden" id="map_x" name="map_x" value="<%= values.map_x === null || values.map_x === undefined ? '' : values.map_x %>">
+          <input type="hidden" id="map_y" name="map_y" value="<%= values.map_y === null || values.map_y === undefined ? '' : values.map_y %>">
+
+          <p class="map-readout">
+            <span class="eyebrow eyebrow--muted">Marker</span>
+            <span id="map-readout-value" class="mono">
+              <%= (values.map_x === null || values.map_x === undefined || values.map_x === '') ? 'not placed' : values.map_x + '% / ' + values.map_y + '%' %>
+            </span>
+            <button type="button" class="btn btn--sm" id="map-clear">Clear marker</button>
+          </p>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary"><%= meeting ? 'Save changes' : 'Schedule it' %></button>
+        <a class="btn btn--sm" href="/admin/meetings">Cancel</a>
+      </div>
+    </form>
+  </div>
+</section>

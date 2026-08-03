@@ -1,0 +1,8 @@
+<% if (Array.isArray(flash) && flash.length) { %>
+  <div class="wrap flash-wrap">
+    <% flash.forEach(function (f) { %>
+      <p class="flash flash--<%= ['ok','error','info'].indexOf(f.type) >= 0 ? f.type : 'info' %>"
+         role="<%= f.type === 'error' ? 'alert' : 'status' %>"><%= f.message %></p>
+    <% }) %>
+  </div>
+<% } %>

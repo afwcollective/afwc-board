@@ -1,0 +1,14 @@
+<section class="section auth-section">
+  <div class="wrap wrap--narrow">
+    <p class="eyebrow"><%= eyebrow %></p>
+    <h1><%= heading %></h1>
+    <p class="lede measure"><%= blurb %></p>
+    <div class="card card--lead">
+      <p class="eyebrow eyebrow--muted">In the meantime</p>
+      <ul class="link-list">
+        <li><a href="/">Next meeting, the floor map and announcements</a></li>
+        <% if (isLeader) { %><li><a href="/admin">Admin console</a></li><% } %>
+      </ul>
+    </div>
+  </div>
+</section>

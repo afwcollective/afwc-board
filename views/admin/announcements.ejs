@@ -1,0 +1,70 @@
+<section class="section">
+  <div class="wrap">
+    <p class="eyebrow">Leaders only</p>
+    <h1>Announcements</h1>
+    <p class="lede measure">
+      These sit on the public front page, pinned ones first. Markdown works:
+      <span class="mono small">**bold**</span>, <span class="mono small">_italic_</span>,
+      <span class="mono small">- lists</span>, <span class="mono small">[links](https://…)</span>.
+    </p>
+
+    <%- include('../partials/form-errors', { errors: errors }) %>
+
+    <form method="post" action="/admin/announcements" class="form card card--form">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+      <div class="field">
+        <label for="title">Title</label>
+        <input id="title" name="title" type="text" required maxlength="140" value="<%= values.title %>">
+      </div>
+
+      <div class="field">
+        <label for="body_md">Body</label>
+        <textarea id="body_md" name="body_md" rows="7" required maxlength="20000"><%= values.body_md %></textarea>
+      </div>
+
+      <div class="field field--check">
+        <label class="check">
+          <input type="checkbox" name="is_pinned" value="1">
+          <span>Pin this to the top</span>
+        </label>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary">Post announcement</button>
+        <a class="btn btn--sm" href="/admin">Back to admin</a>
+      </div>
+    </form>
+
+    <p class="section-label">Posted</p>
+
+    <% if (!announcements.length) { %>
+      <p class="empty">Nothing posted yet.</p>
+    <% } else { %>
+      <ul class="ann-list">
+        <% announcements.forEach(function (a) { %>
+          <li class="card ann<%= a.is_pinned ? ' ann--pinned' : '' %>">
+            <p class="ann-meta">
+              <% if (a.is_pinned) { %><span class="badge">Pinned</span><% } %>
+              <time datetime="<%= dates.isoAttr(a.created_at) %>"><%= dates.formatDateShort(a.created_at) %></time>
+              <% if (a.author_name) { %><span class="ann-author">· <%= a.author_name %></span><% } %>
+            </p>
+            <h3 class="ann-title"><%= a.title %></h3>
+            <div class="prose"><%- a.body_html %></div>
+            <div class="ann-actions">
+              <form method="post" action="/admin/announcements/<%= a.id %>/pin" class="inline-form">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <button class="btn btn--sm" type="submit"><%= a.is_pinned ? 'Unpin' : 'Pin' %></button>
+              </form>
+              <form method="post" action="/admin/announcements/<%= a.id %>/delete" class="inline-form"
+                    onsubmit="return confirm('Remove this announcement from the front page?')">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <button class="btn btn--sm btn--danger" type="submit">Remove</button>
+              </form>
+            </div>
+          </li>
+        <% }) %>
+      </ul>
+    <% } %>
+  </div>
+</section>

@@ -1,0 +1,29 @@
+<header class="site-header">
+  <div class="wrap header-inner">
+    <a class="brand" href="/">
+      <span class="orb" aria-hidden="true"></span>
+      <span class="lockup">
+        <span class="wordmark">AFWC</span>
+        <span class="brand-sub">Agile Fiction Writers Collective</span>
+      </span>
+    </a>
+
+    <nav class="nav" aria-label="Primary">
+      <% if (currentUser) { %>
+        <a href="/board" <%- currentPath.indexOf('/board') === 0 ? 'aria-current="page"' : '' %>>Board</a>
+        <a href="/drafts" <%- currentPath.indexOf('/drafts') === 0 ? 'aria-current="page"' : '' %>>Drafts</a>
+        <% if (isLeader) { %>
+          <a href="/admin" <%- currentPath.indexOf('/admin') === 0 ? 'aria-current="page"' : '' %>>Admin</a>
+        <% } %>
+        <span class="nav-user" title="Signed in as <%= currentUser.username %>"><%= currentUser.display_name %></span>
+        <form method="post" action="/logout" class="nav-form">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <button type="submit" class="btn btn--sm">Sign out</button>
+        </form>
+      <% } else { %>
+        <a href="/register">Join</a>
+        <a class="btn btn--sm btn--key" href="/login"><span>Sign in</span></a>
+      <% } %>
+    </nav>
+  </div>
+</header>

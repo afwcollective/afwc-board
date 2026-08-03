@@ -1,0 +1,61 @@
+<section class="section auth-section">
+  <div class="wrap wrap--narrow">
+    <p class="eyebrow">Members</p>
+    <h1>Join the board</h1>
+    <p class="lede measure">
+      You'll need the group passcode. Any regular at the meetup can tell you what it is.
+    </p>
+
+    <%- include('../partials/form-errors', { errors: errors }) %>
+
+    <% if (setupNeeded) { %>
+      <p class="notice">This board hasn't been set up yet. <a href="/setup">Start here</a>.</p>
+    <% } %>
+
+    <form method="post" action="/register" class="form" autocomplete="off">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+      <div class="field">
+        <label for="passcode">Group passcode</label>
+        <input id="passcode" name="passcode" type="text" required autocomplete="off" autofocus>
+      </div>
+
+      <div class="field">
+        <label for="display_name">Display name</label>
+        <input id="display_name" name="display_name" type="text" required maxlength="60"
+               value="<%= values.display_name || '' %>" autocomplete="name">
+      </div>
+
+      <div class="field">
+        <label for="username">Username</label>
+        <input id="username" name="username" type="text" required minlength="3" maxlength="32"
+               pattern="[A-Za-z0-9][A-Za-z0-9._\-]{2,31}"
+               value="<%= values.username || '' %>" autocomplete="username">
+        <p class="hint">Letters, numbers, dot, dash, underscore.</p>
+      </div>
+
+      <div class="field">
+        <label for="email">Email <span class="optional">(optional)</span></label>
+        <input id="email" name="email" type="email" maxlength="120" value="<%= values.email || '' %>">
+        <p class="hint">Only so a leader can reach you. No mail is ever sent from here.</p>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" required minlength="8" autocomplete="new-password">
+          <p class="hint">Eight characters or more.</p>
+        </div>
+        <div class="field">
+          <label for="password2">Repeat password</label>
+          <input id="password2" name="password2" type="password" required minlength="8" autocomplete="new-password">
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary">Join</button>
+        <span class="form-aside">Already a member? <a href="/login">Sign in</a>.</span>
+      </div>
+    </form>
+  </div>
+</section>
