@@ -1,0 +1,28 @@
+<section class="section">
+  <div class="wrap wrap--narrow">
+    <p class="eyebrow">Members · Discussion</p>
+    <h1>New thread</h1>
+
+    <%- include('../partials/form-errors', { errors: errors }) %>
+
+    <form method="post" action="/board" class="form card card--form">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+      <div class="field">
+        <label for="title">Title</label>
+        <input id="title" name="title" type="text" required maxlength="200" value="<%= values.title %>">
+      </div>
+
+      <div class="field">
+        <label for="body_md">First post</label>
+        <textarea id="body_md" name="body_md" rows="8" required maxlength="20000"><%= values.body_md %></textarea>
+        <p class="hint">Plain text works. *italics*, **bold**, and blank lines between paragraphs.</p>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary">Start thread</button>
+        <a class="btn btn--sm" href="/board">Back to the board</a>
+      </div>
+    </form>
+  </div>
+</section>

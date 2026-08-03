@@ -1,0 +1,41 @@
+/* ============================================================
+   board.css — board-specific additions only. Everything else
+   (cards, buttons, forms, tables, badges, flash) comes from site.css.
+   ============================================================ */
+
+.board-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s4);
+  flex-wrap: wrap;
+  margin-bottom: var(--s5);
+}
+
+.thread-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s3); }
+
+.thread-row { padding: var(--s4); }
+.thread-title-line { margin: 0 0 4px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.thread-title { font-family: var(--serif); font-size: 19px; text-decoration: none; color: var(--ink); }
+.thread-title:hover { color: var(--blue); }
+.thread-meta { margin: 0; }
+
+.thread-heading { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.thread-byline { margin: 0 0 var(--s5); }
+
+.post-list { list-style: none; margin: 0 0 var(--s5); padding: 0; display: grid; gap: var(--s4); }
+.post {
+  background: var(--card);
+  border: 1px solid var(--hair-2);
+  border-top: 3px solid var(--blue);
+  padding: var(--s4);
+}
+.post-meta { margin: 0 0 var(--s2); }
+.post .form-actions,
+.post .inline-form { margin-top: var(--s2); }
+.post--removed {
+  background: transparent;
+  border: 1px dashed var(--hair-2);
+  border-top: 1px dashed var(--hair-2);
+  padding: var(--s3) var(--s4);
+}

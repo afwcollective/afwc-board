@@ -1,0 +1,73 @@
+<section class="section">
+  <div class="wrap wrap--narrow">
+    <% if (draft) { %>
+      <p class="notice">
+        Discussion for draft: <a href="/drafts/<%= draft.id %>"><%= draft.title %></a>
+      </p>
+    <% } %>
+
+    <p class="eyebrow">Members · Discussion</p>
+    <h1 class="thread-heading">
+      <%= thread.title %>
+      <% if (thread.is_locked) { %><span class="badge badge--warn">Locked</span><% } %>
+    </h1>
+    <p class="thread-byline small muted">Started by <%= thread.author_name || 'a member' %></p>
+
+    <% if (isLeader || (currentUser && currentUser.id === thread.user_id)) { %>
+      <p class="form-actions form-actions--top">
+        <% if (isLeader) { %>
+          <form method="post" action="/board/<%= thread.id %>/lock" class="inline-form">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <button class="btn btn--sm" type="submit"><%= thread.is_locked ? 'Unlock thread' : 'Lock thread' %></button>
+          </form>
+        <% } %>
+        <form method="post" action="/board/<%= thread.id %>/delete" class="inline-form"
+              onsubmit="return confirm('Remove this whole thread?')">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <button class="btn btn--sm btn--danger" type="submit">Remove thread</button>
+        </form>
+      </p>
+    <% } %>
+
+    <ol class="post-list">
+      <% posts.forEach(function (p) { %>
+        <% if (p.deleted_at) { %>
+          <li class="post post--removed" id="post-<%= p.id %>">
+            <p class="small muted">Post removed.</p>
+          </li>
+        <% } else { %>
+          <li class="post" id="post-<%= p.id %>">
+            <p class="post-meta small muted">
+              <%= p.author_name || 'a member' %>
+              · <time datetime="<%= dates.isoAttr(p.created_at) %>"><%= dates.relative(p.created_at) %></time>
+            </p>
+            <div class="prose"><%- p.body_html %></div>
+            <% if (isLeader || (currentUser && currentUser.id === p.user_id)) { %>
+              <form method="post" action="/board/posts/<%= p.id %>/delete" class="inline-form"
+                    onsubmit="return confirm('Remove this post?')">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <button class="btn btn--sm btn--danger" type="submit">Remove</button>
+              </form>
+            <% } %>
+          </li>
+        <% } %>
+      <% }) %>
+    </ol>
+
+    <% if (thread.is_locked && !isLeader) { %>
+      <p class="notice">This thread is locked. Only leaders can post here now.</p>
+    <% } else { %>
+      <form method="post" action="/board/<%= thread.id %>/reply" class="form card card--form">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <div class="field">
+          <label for="body_md">Reply</label>
+          <textarea id="body_md" name="body_md" rows="5" required maxlength="20000"></textarea>
+          <p class="hint">Plain text works. *italics*, **bold**, and blank lines between paragraphs.</p>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn--primary">Post reply</button>
+        </div>
+      </form>
+    <% } %>
+  </div>
+</section>

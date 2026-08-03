@@ -1,0 +1,34 @@
+<section class="section">
+  <div class="wrap">
+    <div class="board-head">
+      <div>
+        <p class="eyebrow">Members · Discussion</p>
+        <h1>The board</h1>
+      </div>
+      <a class="btn btn--primary" href="/board/new">New thread</a>
+    </div>
+
+    <% if (!threads.length) { %>
+      <p class="empty">No conversations yet — start one.</p>
+    <% } else { %>
+      <ul class="thread-list">
+        <% threads.forEach(function (t) { %>
+          <li class="card thread-row">
+            <p class="thread-title-line">
+              <a class="thread-title" href="/board/<%= t.id %>"><%= t.title %></a>
+              <% if (t.is_locked) { %><span class="badge badge--warn">Locked</span><% } %>
+            </p>
+            <p class="thread-meta small muted">
+              Started by <%= t.author_name || 'a member' %>
+              · <%= t.reply_count %> <%= t.reply_count === 1 ? 'reply' : 'replies' %>
+              <% if (t.last_post_at) { %>
+                · last activity
+                <time datetime="<%= dates.isoAttr(t.last_post_at) %>"><%= dates.relative(t.last_post_at) %></time>
+              <% } %>
+            </p>
+          </li>
+        <% }) %>
+      </ul>
+    <% } %>
+  </div>
+</section>
