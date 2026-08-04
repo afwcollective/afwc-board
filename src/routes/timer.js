@@ -10,14 +10,12 @@
  * useless to them without this same gate, so there's no separate public view
  * to keep in sync.
  *
- * A FUTURE AGENT WIDENING ACCESS TO PER-SESSION HOSTS: this is the one place
- * to change on the server side. Swap requireLeader below for whatever check
- * decides "is this user hosting the current/next meeting" — everything else
- * (the engine, the widget, the page) is host-agnostic and reads res.locals
- * only for isLeader. The matching client-side gate is the isLeader guard
- * around the widget include in views/layout.ejs (search "timer-widget") —
- * both need to move together or the nav link / widget will disagree with
- * what the route actually allows.
+ * Access is leaders OR session hosts (someone assigned to run an upcoming
+ * session — res.locals.isHost, computed in loadUser). The matching
+ * client-side gates are the isLeader || isHost guards around the widget
+ * include in views/layout.ejs (search "timer-widget") and the Timer link in
+ * views/partials/nav.ejs — all three must move together or the nav link /
+ * widget will disagree with what the route actually allows.
  *
  * The phase engine (manual sprint/break + opt-in auto session plans) is
  * computed client-side in public/js/timer-core.js — this route only renders
@@ -25,11 +23,19 @@
  */
 
 const express = require('express');
-const { requireLeader } = require('../auth/middleware');
+const { requireMember } = require('../auth/middleware');
 
 const router = express.Router();
 
-router.get('/', requireLeader, (req, res) => {
+/** Leaders, the architect, or a member hosting an upcoming session. */
+function requireTimerAccess(req, res, next) {
+  if (res.locals.isLeader || res.locals.isHost) return next();
+  const err = new Error('The timer is for leaders and session hosts.');
+  err.status = 403;
+  return next(err);
+}
+
+router.get('/', requireMember, requireTimerAccess, (req, res) => {
   res.render('timer', {
     title: 'Sprint timer',
     pageCss: ['/css/timer.css'],

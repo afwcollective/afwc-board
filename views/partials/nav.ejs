@@ -9,7 +9,7 @@
     </a>
 
     <nav class="nav" aria-label="Primary">
-      <% if (isLeader) { %>
+      <% if (isLeader || isHost) { %>
         <a href="/timer" <%- currentPath.indexOf('/timer') === 0 ? 'aria-current="page"' : '' %>>Timer</a>
       <% } %>
       <% if (currentUser) { %>

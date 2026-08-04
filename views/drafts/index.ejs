@@ -64,7 +64,7 @@
                   </form>
                 <% } %>
                 <form method="post" action="/drafts/<%= d.id %>/delete" class="inline-form"
-                      onsubmit="return confirm('Remove this draft and its discussion thread?')">
+                      data-confirm="Remove this draft and its discussion thread?">
                   <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                   <button class="btn btn--sm btn--danger" type="submit">Remove</button>
                 </form>

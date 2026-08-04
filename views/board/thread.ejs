@@ -22,7 +22,7 @@
           </form>
         <% } %>
         <form method="post" action="/board/<%= thread.id %>/delete" class="inline-form"
-              onsubmit="return confirm('Remove this whole thread?')">
+              data-confirm="Remove this whole thread?">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>">
           <button class="btn btn--sm btn--danger" type="submit">Remove thread</button>
         </form>
@@ -44,7 +44,7 @@
             <div class="prose"><%- p.body_html %></div>
             <% if (isLeader || (currentUser && currentUser.id === p.user_id)) { %>
               <form method="post" action="/board/posts/<%= p.id %>/delete" class="inline-form"
-                    onsubmit="return confirm('Remove this post?')">
+                    data-confirm="Remove this post?">
                 <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                 <button class="btn btn--sm btn--danger" type="submit">Remove</button>
               </form>

@@ -57,7 +57,7 @@
                 <button class="btn btn--sm" type="submit"><%= a.is_pinned ? 'Unpin' : 'Pin' %></button>
               </form>
               <form method="post" action="/admin/announcements/<%= a.id %>/delete" class="inline-form"
-                    onsubmit="return confirm('Remove this announcement from the front page?')">
+                    data-confirm="Remove this announcement from the front page?">
                 <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                 <button class="btn btn--sm btn--danger" type="submit">Remove</button>
               </form>

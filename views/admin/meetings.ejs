@@ -56,7 +56,7 @@
                     <button class="btn btn--sm" type="submit"><%= r.is_active ? 'Deactivate' : 'Activate' %></button>
                   </form>
                   <form method="post" action="/admin/recurring/<%= r.id %>/delete" class="inline-form"
-                        onsubmit="return confirm('Delete this weekly meeting for good? Skipped dates go with it.')">
+                        data-confirm="Delete this weekly meeting for good? Skipped dates go with it.">
                     <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                     <button class="btn btn--sm btn--danger" type="submit">Delete</button>
                   </form>
@@ -169,7 +169,7 @@
                     <button class="btn btn--sm" type="submit"><%= m.is_cancelled ? 'Un-cancel' : 'Cancel' %></button>
                   </form>
                   <form method="post" action="/admin/meetings/<%= m.id %>/delete" class="inline-form"
-                        onsubmit="return confirm('Remove this meeting from the board?')">
+                        data-confirm="Remove this meeting from the board?">
                     <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                     <button class="btn btn--sm btn--danger" type="submit">Remove</button>
                   </form>
