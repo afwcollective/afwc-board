@@ -1,0 +1,93 @@
+<section class="section">
+  <div class="wrap">
+    <p class="eyebrow">Leaders only</p>
+    <h1><%= rule ? 'Edit weekly meeting' : 'Add a weekly meeting' %></h1>
+    <p class="lede measure">
+      This is a standing rule, not a single date. Set it once and the front page
+      keeps showing the next one — forever, or until you pause it.
+    </p>
+
+    <%- include('../partials/form-errors', { errors: errors }) %>
+
+    <form method="post" action="<%= rule ? '/admin/recurring/' + rule.id : '/admin/recurring' %>"
+          class="form meeting-form" id="recurring-form">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+      <div class="meeting-form-grid">
+        <div class="meeting-form-fields">
+          <div class="field-row">
+            <div class="field">
+              <label for="weekday">Every</label>
+              <select id="weekday" name="weekday" required>
+                <% weekdays.forEach(function (name, i) { %>
+                  <option value="<%= i %>" <%= String(values.weekday) === String(i) ? 'selected' : '' %>><%= name %></option>
+                <% }) %>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="time_hhmm">At <span class="optional">(Baltimore time)</span></label>
+              <input id="time_hhmm" name="time_hhmm" type="time" required value="<%= values.time_hhmm %>">
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="title">Title</label>
+            <input id="title" name="title" type="text" maxlength="120" required value="<%= values.title %>"
+                   placeholder="Saturday session">
+          </div>
+
+          <div class="field">
+            <label for="location_label">Where we're sitting</label>
+            <input id="location_label" name="location_label" type="text" maxlength="120"
+                   value="<%= values.location_label %>"
+                   placeholder="In front of Hilo">
+            <p class="hint">Shown next to the map on the front page. Plain words beat coordinates.</p>
+          </div>
+
+          <div class="field">
+            <label for="notes">Notes <span class="optional">(optional)</span></label>
+            <textarea id="notes" name="notes" rows="4" maxlength="2000"
+                      placeholder="Bring 10 pages. Parking is easiest on Sisson St."><%= values.notes %></textarea>
+          </div>
+
+          <div class="field field--check">
+            <label class="check">
+              <input type="checkbox" name="is_active" value="1" <%= values.is_active ? 'checked' : '' %>>
+              <span>Active — show this on the front page</span>
+            </label>
+            <p class="hint">
+              Uncheck to pause the whole rule (a summer break, say). To call off a
+              single week, use "Skip a date" on the Meetings page instead.
+            </p>
+          </div>
+        </div>
+
+        <div class="meeting-form-map">
+          <p class="section-label">The table</p>
+          <%- include('../partials/floormap', {
+                markerX: values.map_x,
+                markerY: values.map_y,
+                interactive: true
+              }) %>
+
+          <input type="hidden" id="map_x" name="map_x" value="<%= values.map_x === null || values.map_x === undefined ? '' : values.map_x %>">
+          <input type="hidden" id="map_y" name="map_y" value="<%= values.map_y === null || values.map_y === undefined ? '' : values.map_y %>">
+
+          <p class="map-readout">
+            <span class="eyebrow eyebrow--muted">Marker</span>
+            <span id="map-readout-value" class="mono">
+              <%= (values.map_x === null || values.map_x === undefined || values.map_x === '') ? 'not placed' : values.map_x + '% / ' + values.map_y + '%' %>
+            </span>
+            <button type="button" class="btn btn--sm" id="map-clear">Clear marker</button>
+          </p>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary"><%= rule ? 'Save changes' : 'Add it to the schedule' %></button>
+        <a class="btn btn--sm" href="/admin/meetings#weekly">Cancel</a>
+      </div>
+    </form>
+  </div>
+</section>

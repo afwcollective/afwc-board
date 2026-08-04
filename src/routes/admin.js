@@ -2,7 +2,7 @@
 
 const express = require('express');
 const { getSetting, setSetting } = require('../db');
-const { users, meetings, announcements } = require('../models');
+const { users, meetings, recurring, announcements } = require('../models');
 const { requireLeader } = require('../auth/middleware');
 const { hashSecret } = require('../auth/passwords');
 const sessions = require('../auth/sessions');
@@ -35,7 +35,7 @@ const trim = (v, max = 200) => {
 const BACKUP_STALE_MS = 30 * 24 * 3600e3;
 
 router.get('/', (req, res) => {
-  const next = meetings.next();
+  const next = meetings.nextUnified();
   const lastBackupAt = getSetting('last_backup_at', null);
   const backupStale = !lastBackupAt || Date.now() - new Date(lastBackupAt).getTime() > BACKUP_STALE_MS;
   res.render('admin/dashboard', {
@@ -70,12 +70,29 @@ router.post('/settings/watermark', (req, res) => {
 
 /* --------------------------------------------------------------- meetings */
 
+/** Weekly rules decorated with what a leader needs to see: next date + skips. */
+function rulesForList() {
+  return recurring.list().map((rule) => {
+    const occurrences = dates.nextOccurrences(rule.weekday, rule.time_hhmm, 8);
+    const skipped = new Set(recurring.skipDates(rule.id));
+    const next = occurrences.find((o) => !skipped.has(o.local_date)) || null;
+    return {
+      ...rule,
+      next,
+      // Default the skip form to the next occurrence that is still on.
+      skipDefault: next ? next.local_date : occurrences.length ? occurrences[0].local_date : '',
+      skips: recurring.skips(rule.id),
+    };
+  });
+}
+
 router.get('/meetings', (req, res) => {
   res.render('admin/meetings', {
     title: 'Meetings',
     bodyClass: 'page-admin',
     upcoming: meetings.upcoming(),
     past: meetings.past(10),
+    rules: rulesForList(),
   });
 });
 
@@ -199,6 +216,167 @@ router.post('/meetings/:id/delete', (req, res, next) => {
   meetings.softDelete(meeting.id, req.user.id);
   flash(res, 'info', 'Meeting removed.');
   return res.redirect('/admin/meetings');
+});
+
+/* ------------------------------------------------- recurring weekly rules */
+
+/* The rule form lives on its own page rather than inline on /admin/meetings:
+   it carries the same interactive floor map as the one-off meeting form, and
+   map-picker.js binds to a single #floormap-svg / #map_x / #map_y set. */
+
+const EMPTY_RULE = {
+  weekday: 6, time_hhmm: '13:00', title: '', location_label: '', notes: '',
+  map_x: '', map_y: '', is_active: 1,
+};
+
+function renderRuleForm(res, { rule, values, errors, status = 200 }) {
+  return res.status(status).render('admin/recurring-form', {
+    title: rule ? 'Edit weekly meeting' : 'New weekly meeting',
+    bodyClass: 'page-admin',
+    pageJs: ['/js/map-picker.js'],
+    rule,
+    values,
+    weekdays: dates.weekdayNames(),
+    errors,
+  });
+}
+
+function readRuleForm(body) {
+  const weekdayRaw = Number(body.weekday);
+  const values = {
+    weekday: Number.isInteger(weekdayRaw) && weekdayRaw >= 0 && weekdayRaw <= 6 ? weekdayRaw : '',
+    time_hhmm: dates.normalizeHhmm(body.time_hhmm) || '',
+    title: trim(body.title, 120) || '',
+    location_label: trim(body.location_label, 120) || '',
+    notes: trim(body.notes, 2000) || '',
+    map_x: coord(body.map_x),
+    map_y: coord(body.map_y),
+    is_active: body.is_active ? 1 : 0,
+  };
+  const errors = [];
+  if (values.weekday === '') errors.push('Pick the day of the week this meeting happens on.');
+  if (!values.time_hhmm) errors.push('Pick the time the meeting starts (Baltimore time).');
+  if (!values.title) errors.push('Give the weekly meeting a title — it shows on the front page.');
+  if ((values.map_x === null) !== (values.map_y === null)) {
+    errors.push('Click the floor map to place the marker (or clear it entirely).');
+  }
+  return { values, errors };
+}
+
+router.get('/recurring/new', (req, res) => renderRuleForm(res, { rule: null, values: { ...EMPTY_RULE }, errors: [] }));
+
+router.post('/recurring', (req, res) => {
+  const { values, errors } = readRuleForm(req.body);
+  if (errors.length) return renderRuleForm(res, { rule: null, values, errors, status: 400 });
+  recurring.create({
+    weekday: values.weekday,
+    time_hhmm: values.time_hhmm,
+    title: values.title,
+    location_label: values.location_label || null,
+    notes: values.notes || null,
+    map_x: values.map_x,
+    map_y: values.map_y,
+    is_active: values.is_active,
+    created_by: req.user.id,
+  });
+  flash(res, 'ok', `Weekly meeting saved — every ${dates.weekdayName(values.weekday)}, no re-entry needed.`);
+  return res.redirect('/admin/meetings#weekly');
+});
+
+function ruleValues(rule) {
+  return {
+    weekday: rule.weekday,
+    time_hhmm: rule.time_hhmm,
+    title: rule.title || '',
+    location_label: rule.location_label || '',
+    notes: rule.notes || '',
+    map_x: rule.map_x,
+    map_y: rule.map_y,
+    is_active: rule.is_active,
+  };
+}
+
+router.get('/recurring/:id/edit', (req, res, next) => {
+  const rule = recurring.byId(req.params.id);
+  if (!rule) return next();
+  return renderRuleForm(res, { rule, values: ruleValues(rule), errors: [] });
+});
+
+// Bare /admin/recurring/:id is the same page, one redirect away.
+router.get('/recurring/:id', (req, res) => res.redirect(`/admin/recurring/${encodeURIComponent(req.params.id)}/edit`));
+
+router.post('/recurring/:id', (req, res, next) => {
+  const rule = recurring.byId(req.params.id);
+  if (!rule) return next();
+  const { values, errors } = readRuleForm(req.body);
+  if (errors.length) return renderRuleForm(res, { rule, values, errors, status: 400 });
+  recurring.update({
+    id: rule.id,
+    weekday: values.weekday,
+    time_hhmm: values.time_hhmm,
+    title: values.title,
+    location_label: values.location_label || null,
+    notes: values.notes || null,
+    map_x: values.map_x,
+    map_y: values.map_y,
+    is_active: values.is_active,
+  });
+  flash(res, 'ok', 'Weekly meeting updated.');
+  return res.redirect('/admin/meetings#weekly');
+});
+
+router.post('/recurring/:id/toggle', (req, res, next) => {
+  const rule = recurring.byId(req.params.id);
+  if (!rule) return next();
+  const activate = rule.is_active ? 0 : 1;
+  recurring.setActive(rule.id, activate);
+  flash(
+    res,
+    'info',
+    activate
+      ? `“${rule.title}” is back on the front page every ${dates.weekdayName(rule.weekday)}.`
+      : `“${rule.title}” is paused — it no longer appears on the front page.`
+  );
+  return res.redirect('/admin/meetings#weekly');
+});
+
+router.post('/recurring/:id/delete', (req, res, next) => {
+  const rule = recurring.byId(req.params.id);
+  if (!rule) return next();
+  recurring.remove(rule.id);
+  flash(res, 'info', `“${rule.title}” was removed from the weekly schedule.`);
+  return res.redirect('/admin/meetings#weekly');
+});
+
+/* Skipping one week: a date, not a cancellation. The rule keeps running. */
+
+router.post('/recurring/:id/skip', (req, res, next) => {
+  const rule = recurring.byId(req.params.id);
+  if (!rule) return next();
+  const skipDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body.skip_date || '').trim())
+    ? String(req.body.skip_date).trim()
+    : null;
+  if (!skipDate) {
+    flash(res, 'error', 'Pick the date of the week you want to skip.');
+    return res.redirect('/admin/meetings#weekly');
+  }
+  if (dates.localDayOfWeek(skipDate) !== rule.weekday) {
+    flash(
+      res,
+      'error',
+      `${skipDate} is not a ${dates.weekdayName(rule.weekday)} — pick the date of the ${dates.weekdayName(rule.weekday)} you want to skip.`
+    );
+    return res.redirect('/admin/meetings#weekly');
+  }
+  recurring.addSkip(rule.id, skipDate, req.user.id);
+  flash(res, 'ok', `No meeting on ${dates.formatDate(`${skipDate}T12:00:00Z`)} — the front page skips straight to the next one.`);
+  return res.redirect('/admin/meetings#weekly');
+});
+
+router.post('/recurring/skips/:skipId/delete', (req, res) => {
+  recurring.removeSkip(req.params.skipId);
+  flash(res, 'info', 'That week is back on.');
+  return res.redirect('/admin/meetings#weekly');
 });
 
 /* ---------------------------------------------------------- announcements */

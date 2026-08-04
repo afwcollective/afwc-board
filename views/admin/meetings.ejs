@@ -5,10 +5,95 @@
 
     <p class="form-actions form-actions--top">
       <a class="btn btn--primary" href="/admin/meetings/new">Schedule a meeting</a>
+      <a class="btn" href="/admin/recurring/new">Add a weekly meeting</a>
       <a class="btn btn--sm" href="/admin">Back to admin</a>
     </p>
 
-    <p class="section-label">Upcoming</p>
+    <p class="section-label" id="weekly">Weekly schedule</p>
+    <p class="hint hint--block measure">
+      A weekly meeting repeats forever — nobody has to enter next week's row. The
+      front page always shows whichever comes first: a weekly one or a one-off
+      below. To call off a single week, skip that date; to stop a rule for a
+      while, deactivate it.
+    </p>
+
+    <% if (!rules.length) { %>
+      <p class="empty">No weekly meetings yet. <a href="/admin/recurring/new">Add one</a> and it runs itself.</p>
+    <% } else { %>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr><th>Every</th><th>Title</th><th>Table</th><th>Marker</th><th>Next</th><th class="right">Actions</th></tr>
+          </thead>
+          <tbody>
+            <% rules.forEach(function (r) { %>
+              <tr<%- r.is_active ? '' : ' class="is-cancelled"' %>>
+                <td class="nowrap">
+                  <%= dates.weekdayName(r.weekday) %><br>
+                  <span class="mono small"><%= dates.formatHhmm(r.time_hhmm) %></span>
+                </td>
+                <td>
+                  <%= r.title %>
+                  <% if (!r.is_active) { %><br><span class="badge badge--warn">Paused</span><% } %>
+                </td>
+                <td><%= r.location_label || '—' %></td>
+                <td class="mono small">
+                  <%= (r.map_x !== null && r.map_y !== null) ? (r.map_x + ' / ' + r.map_y) : '—' %>
+                </td>
+                <td class="small">
+                  <% if (!r.is_active) { %>
+                    <span class="muted">paused</span>
+                  <% } else if (r.next) { %>
+                    <%= dates.formatDateShort(r.next.starts_at) %>
+                  <% } else { %>
+                    <span class="muted">all skipped</span>
+                  <% } %>
+                </td>
+                <td class="right nowrap">
+                  <a class="btn btn--sm" href="/admin/recurring/<%= r.id %>/edit">Edit</a>
+                  <form method="post" action="/admin/recurring/<%= r.id %>/toggle" class="inline-form">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                    <button class="btn btn--sm" type="submit"><%= r.is_active ? 'Deactivate' : 'Activate' %></button>
+                  </form>
+                  <form method="post" action="/admin/recurring/<%= r.id %>/delete" class="inline-form"
+                        onsubmit="return confirm('Delete this weekly meeting for good? Skipped dates go with it.')">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                    <button class="btn btn--sm btn--danger" type="submit">Delete</button>
+                  </form>
+                </td>
+              </tr>
+              <tr class="rule-skips">
+                <td colspan="6">
+                  <form method="post" action="/admin/recurring/<%= r.id %>/skip" class="skip-form">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                    <label class="mono small" for="skip-<%= r.id %>">Skip a date</label>
+                    <input id="skip-<%= r.id %>" name="skip_date" type="date" value="<%= r.skipDefault %>" required>
+                    <button class="btn btn--sm" type="submit">Skip that week</button>
+                  </form>
+
+                  <% if (r.skips.length) { %>
+                    <ul class="skip-list small">
+                      <% r.skips.forEach(function (s) { %>
+                        <li>
+                          <span class="badge badge--warn">No meeting</span>
+                          <span><%= dates.formatDate(s.skip_date + 'T12:00:00Z') %></span>
+                          <form method="post" action="/admin/recurring/skips/<%= s.id %>/delete" class="inline-form">
+                            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                            <button class="btn btn--sm" type="submit">Undo</button>
+                          </form>
+                        </li>
+                      <% }) %>
+                    </ul>
+                  <% } %>
+                </td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+
+    <p class="section-label">Upcoming one-off meetings</p>
     <% if (!upcoming.length) { %>
       <p class="empty">Nothing scheduled yet.</p>
     <% } else { %>

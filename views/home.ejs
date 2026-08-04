@@ -53,7 +53,9 @@
       <div class="meeting-grid">
         <div class="card card--meeting">
           <% if (meeting) { %>
-            <p class="eyebrow eyebrow--muted"><%= dates.relative(meeting.starts_at) %></p>
+            <p class="eyebrow eyebrow--muted">
+              <%= dates.relative(meeting.starts_at) %><% if (meeting.is_recurring) { %> · every <%= dates.weekdayName(meeting.weekday) %><% } %>
+            </p>
             <p class="meeting-date">
               <time datetime="<%= dates.isoAttr(meeting.starts_at) %>"><%= dates.formatDate(meeting.starts_at) %></time>
             </p>
@@ -94,6 +96,23 @@
               }) %>
         </div>
       </div>
+
+      <% if (weekly.length) { %>
+        <div class="weekly-strip">
+          <p class="weekly-strip-label">Weekly</p>
+          <ul class="weekly-list">
+            <% weekly.forEach(function (r) { %>
+              <li class="weekly-item">
+                Every <%= dates.weekdayName(r.weekday) %>
+                <span class="weekly-sep">·</span> <%= dates.formatHhmm(r.time_hhmm) %>
+                <% if (r.location_label) { %>
+                  <span class="weekly-sep">·</span> <span class="weekly-where"><%= r.location_label %></span>
+                <% } %>
+              </li>
+            <% }) %>
+          </ul>
+        </div>
+      <% } %>
     </div>
   </section>
 

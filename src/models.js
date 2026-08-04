@@ -7,6 +7,7 @@
  */
 
 const { db } = require('./db');
+const dates = require('./util/dates');
 
 /* ---------------- users ---------------- */
 
@@ -69,6 +70,36 @@ const meetings = {
           ORDER BY starts_at ASC LIMIT 1`
       )
       .get(new Date().toISOString()),
+
+  /**
+   * What the landing page actually shows: the soonest of (a) the next one-off
+   * meeting and (b) each active weekly rule's next unskipped occurrence.
+   *
+   * Always returns a meetings-row shape — plus `is_recurring`, `recurring_id`
+   * and `local_date` — so home.ejs reads one object either way.
+   */
+  nextUnified: (from = new Date()) => {
+    const candidates = [];
+
+    const oneOff = meetings.next();
+    if (oneOff) {
+      candidates.push({
+        ...oneOff,
+        is_recurring: false,
+        recurring_id: null,
+        local_date: dates.localDateKey(oneOff.starts_at),
+      });
+    }
+
+    for (const rule of recurring.listActive()) {
+      const occ = recurring.nextOccurrence(rule, from);
+      if (occ) candidates.push(recurring.asMeeting(rule, occ));
+    }
+
+    candidates.sort((a, b) => String(a.starts_at).localeCompare(String(b.starts_at)));
+    return candidates[0] || null;
+  },
+
   upcoming: (limit = 50) =>
     db
       .prepare(
@@ -116,6 +147,111 @@ const meetings = {
       .run(byUserId, id),
 };
 
+/* ---------------- recurring weekly rules ---------------- */
+
+const RECURRING_COLS = `id, weekday, time_hhmm, title, location_label, map_x, map_y, notes, is_active`;
+
+/** How far ahead we are willing to look for an unskipped occurrence. */
+const SKIP_LOOKAHEAD_WEEKS = 26;
+
+const recurring = {
+  list: () =>
+    db
+      .prepare(
+        `SELECT ${RECURRING_COLS} FROM recurring_meetings
+          ORDER BY is_active DESC, weekday ASC, time_hhmm ASC`
+      )
+      .all(),
+  listActive: () =>
+    db
+      .prepare(
+        `SELECT ${RECURRING_COLS} FROM recurring_meetings
+          WHERE is_active = 1 ORDER BY weekday ASC, time_hhmm ASC`
+      )
+      .all(),
+  byId: (id) => db.prepare(`SELECT * FROM recurring_meetings WHERE id = ?`).get(id),
+  create: (r) =>
+    db
+      .prepare(
+        `INSERT INTO recurring_meetings
+           (weekday, time_hhmm, title, location_label, map_x, map_y, notes, is_active, created_by)
+         VALUES (@weekday, @time_hhmm, @title, @location_label, @map_x, @map_y, @notes, @is_active, @created_by)`
+      )
+      .run(r),
+  update: (r) =>
+    db
+      .prepare(
+        `UPDATE recurring_meetings SET weekday = @weekday, time_hhmm = @time_hhmm, title = @title,
+                location_label = @location_label, map_x = @map_x, map_y = @map_y, notes = @notes,
+                is_active = @is_active, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+          WHERE id = @id`
+      )
+      .run(r),
+  setActive: (id, active) =>
+    db
+      .prepare(
+        `UPDATE recurring_meetings SET is_active = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+          WHERE id = ?`
+      )
+      .run(active ? 1 : 0, id),
+  /** Rules are cheap to retype, so removing one is a hard delete (skips cascade). */
+  remove: (id) => db.prepare('DELETE FROM recurring_meetings WHERE id = ?').run(id),
+
+  /* ---- skipped occurrences ---- */
+
+  /** Local "YYYY-MM-DD" dates this rule is skipping, today onward. */
+  skipDates: (recurringId, fromLocalDate = dates.localDateKey(new Date())) =>
+    db
+      .prepare(
+        `SELECT skip_date FROM recurring_skips
+          WHERE recurring_id = ? AND skip_date >= ? ORDER BY skip_date ASC`
+      )
+      .all(recurringId, fromLocalDate)
+      .map((row) => row.skip_date),
+  skips: (recurringId, fromLocalDate = dates.localDateKey(new Date())) =>
+    db
+      .prepare(
+        `SELECT id, recurring_id, skip_date FROM recurring_skips
+          WHERE recurring_id = ? AND skip_date >= ? ORDER BY skip_date ASC`
+      )
+      .all(recurringId, fromLocalDate),
+  addSkip: (recurringId, skipDate, byUserId) =>
+    db
+      .prepare(
+        `INSERT INTO recurring_skips (recurring_id, skip_date, created_by) VALUES (?, ?, ?)
+         ON CONFLICT (recurring_id, skip_date) DO NOTHING`
+      )
+      .run(recurringId, skipDate, byUserId),
+  removeSkip: (id) => db.prepare('DELETE FROM recurring_skips WHERE id = ?').run(id),
+
+  /**
+   * The next occurrence of `rule` that nobody has skipped, or null if every
+   * occurrence in the next half-year is skipped (which would be quite the year).
+   */
+  nextOccurrence: (rule, from = new Date()) => {
+    const skipped = new Set(recurring.skipDates(rule.id, dates.localDateKey(from)));
+    const candidates = dates.nextOccurrences(rule.weekday, rule.time_hhmm, SKIP_LOOKAHEAD_WEEKS, from);
+    return candidates.find((occ) => !skipped.has(occ.local_date)) || null;
+  },
+
+  /** Shape a rule + occurrence like a meetings row, so views need no branching. */
+  asMeeting: (rule, occ) => ({
+    id: null,
+    starts_at: occ.starts_at,
+    title: rule.title,
+    notes: rule.notes,
+    location_label: rule.location_label,
+    map_x: rule.map_x,
+    map_y: rule.map_y,
+    is_cancelled: 0,
+    is_recurring: true,
+    recurring_id: rule.id,
+    weekday: rule.weekday,
+    time_hhmm: rule.time_hhmm,
+    local_date: occ.local_date,
+  }),
+};
+
 /* ---------------- announcements ---------------- */
 
 const announcements = {
@@ -155,4 +291,4 @@ const announcements = {
       .run(byUserId, id),
 };
 
-module.exports = { users, meetings, announcements };
+module.exports = { users, meetings, recurring, announcements };

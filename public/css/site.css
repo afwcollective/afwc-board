@@ -612,3 +612,55 @@ p:last-child { margin-bottom: 0; }
 .badge--leader { border-color: var(--blue); color: var(--blue); background: var(--blue-3); }
 .nowrap { white-space: nowrap; }
 .table td form.inline-form + form.inline-form { margin-left: 4px; }
+
+/* ============================================================
+   RECURRING MEETINGS — the quiet "WEEKLY" strip under the
+   next-meeting card on the landing page, and the skip-a-date
+   control on /admin/meetings. Mono eyebrow register, borrowed
+   from .eyebrow / .floormap-caption so it reads as a footnote to
+   the card rather than a second card.
+   ============================================================ */
+
+.weekly-strip {
+  margin-top: clamp(20px, 3vw, 34px);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--hair-2);
+  display: grid;
+  gap: 6px;
+}
+.weekly-strip-label {
+  font-family: var(--mono); font-size: 11px; letter-spacing: .22em;
+  text-transform: uppercase; color: var(--blue); margin: 0;
+}
+.weekly-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.weekly-item {
+  font-family: var(--mono); font-size: 12px; letter-spacing: .08em;
+  color: var(--ink-3); line-height: 1.5;
+  overflow-wrap: anywhere;   /* long stall names must never widen the page at 375px */
+}
+.weekly-sep { color: var(--ink-4); }
+.weekly-where { color: var(--ink-2); }
+
+@media (min-width: 620px) {
+  .weekly-strip { grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: 14px; }
+  .weekly-strip-label { padding-top: 1px; }
+}
+
+/* The rule form adds two input types the base sheet never needed; give them the
+   same shell as every other field instead of the browser default. */
+.field input[type="time"],
+.field input[type="date"] {
+  width: 100%; max-width: 100%;
+  font-family: var(--sans); font-size: 16px; color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--hair);
+  border-bottom: 2px solid var(--ink-3);
+  padding: 10px 12px;
+  border-radius: 0;
+}
+
+/* admin: the weekly-rule rows carry a second line of controls under the table */
+.skip-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0; }
+.skip-form input[type="date"] { width: auto; min-width: 0; }
+.skip-list { list-style: none; margin: 6px 0 0; padding: 0; }
+.skip-list li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 3px 0; }

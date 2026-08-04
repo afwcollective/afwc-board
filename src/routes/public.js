@@ -1,7 +1,7 @@
 'use strict';
 
 const express = require('express');
-const { meetings, announcements } = require('../models');
+const { meetings, recurring, announcements } = require('../models');
 const { noUsersYet } = require('../auth/middleware');
 
 const router = express.Router();
@@ -12,12 +12,13 @@ router.get('/healthz', (req, res) => {
 
 router.get('/', (req, res) => {
   const firstRun = noUsersYet();
-  const meeting = firstRun ? null : meetings.next();
+  const meeting = firstRun ? null : meetings.nextUnified();
   res.render('home', {
     title: null, // layout falls back to the site name
     bodyClass: 'page-home',
     firstRun,
     meeting,
+    weekly: firstRun ? [] : recurring.listActive(),
     announcements: firstRun ? [] : announcements.list(10),
     pageJs: [],
   });

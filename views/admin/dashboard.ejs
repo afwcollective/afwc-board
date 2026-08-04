@@ -41,11 +41,16 @@
             <% } %>
           </p>
           <p>
-            <a class="btn btn--sm" href="/admin/meetings/<%= meeting.id %>/edit">Edit this meeting</a>
+            <% if (meeting.is_recurring) { %>
+              <a class="btn btn--sm" href="/admin/recurring/<%= meeting.recurring_id %>/edit">Edit this weekly meeting</a>
+            <% } else { %>
+              <a class="btn btn--sm" href="/admin/meetings/<%= meeting.id %>/edit">Edit this meeting</a>
+            <% } %>
           </p>
         <% } else { %>
           <p class="empty">Nothing scheduled. The front page is showing "no meeting scheduled yet".</p>
           <p><a class="btn btn--sm btn--primary" href="/admin/meetings/new">Schedule a meeting</a></p>
+          <p><a class="btn btn--sm" href="/admin/recurring/new">Add a weekly meeting</a></p>
         <% } %>
       </div>
 
@@ -53,7 +58,7 @@
         <p class="eyebrow eyebrow--muted">Quick links</p>
         <ul class="link-list">
           <li><a href="/admin/members">Members — deactivate, promote, generate reset codes</a></li>
-          <li><a href="/admin/meetings">Meetings — schedule, move the marker, cancel</a></li>
+          <li><a href="/admin/meetings">Meetings — the weekly schedule, one-off dates, the map pin</a></li>
           <li><a href="/admin/announcements">Announcements — post, pin, remove</a></li>
           <li><a href="/admin/passcode">Group passcode — change the shared code</a></li>
           <li><a href="/admin/help">Leader handbook — how everything works</a></li>
