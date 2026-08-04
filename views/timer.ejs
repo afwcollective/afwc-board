@@ -2,32 +2,89 @@
   <div class="wrap wrap--narrow timer-wrap">
     <p class="eyebrow">The Agile Fiction Writers Collective · Sprint timer</p>
 
-    <div class="timer" data-timer data-state="idle" data-phase-kind="settle">
-      <div class="timer-clock" data-clock>10:00</div>
-      <p class="timer-phase mono" data-phase aria-live="polite">Press start when you're ready</p>
+    <div class="timer" data-timer data-status="idle" data-mode="sprint">
 
-      <div class="timer-progress" data-progress aria-hidden="true">
-        <div class="timer-progress-fill" data-progress-fill></div>
-        <div class="timer-ticks" data-ticks></div>
+      <!-- Idle / done chooser: pick a mode and a duration, click to start. -->
+      <div class="timer-chooser" data-chooser>
+        <p class="timer-banner mono" data-banner hidden></p>
+
+        <div class="timer-modes">
+          <div class="timer-mode" data-mode-group="sprint">
+            <button type="button" class="timer-mode-btn" data-start-mode="sprint">
+              <span class="timer-mode-label mono">Sprint</span>
+              <span class="timer-mode-duration serif" data-mode-duration="sprint">20:00</span>
+            </button>
+            <div class="timer-presets mono" data-presets="sprint" role="group" aria-label="Sprint length">
+              <button type="button" data-preset-mode="sprint" data-preset-value="15">15</button>
+              <button type="button" data-preset-mode="sprint" data-preset-value="20">20</button>
+              <button type="button" data-preset-mode="sprint" data-preset-value="25">25</button>
+              <button type="button" data-preset-mode="sprint" data-preset-value="30">30</button>
+              <input type="number" class="timer-custom" data-custom-mode="sprint" min="1" max="180" placeholder="min" inputmode="numeric" aria-label="Custom sprint length in minutes">
+            </div>
+          </div>
+
+          <div class="timer-mode" data-mode-group="break">
+            <button type="button" class="timer-mode-btn" data-start-mode="break">
+              <span class="timer-mode-label mono">Break</span>
+              <span class="timer-mode-duration serif" data-mode-duration="break">10:00</span>
+            </button>
+            <div class="timer-presets mono" data-presets="break" role="group" aria-label="Break length">
+              <button type="button" data-preset-mode="break" data-preset-value="5">5</button>
+              <button type="button" data-preset-mode="break" data-preset-value="10">10</button>
+              <button type="button" data-preset-mode="break" data-preset-value="15">15</button>
+              <input type="number" class="timer-custom" data-custom-mode="break" min="1" max="180" placeholder="min" inputmode="numeric" aria-label="Custom break length in minutes">
+            </div>
+          </div>
+        </div>
+
+        <div class="timer-auto" data-auto>
+          <button type="button" class="timer-auto-toggle mono" data-auto-toggle aria-expanded="false">
+            Auto session <span data-auto-caret aria-hidden="true">&#9662;</span>
+          </button>
+          <div class="timer-auto-panel" data-auto-panel hidden>
+            <p class="mono small muted">Settle in for 10, then alternating sprints and breaks, ending on a sprint.</p>
+            <div class="timer-length mono" role="group" aria-label="Auto session length">
+              <button type="button" data-auto-start="90">90 min</button>
+              <button type="button" data-auto-start="120">120 min</button>
+              <button type="button" data-auto-start="150">150 min</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Running / paused: the countdown. -->
+      <div class="timer-active" data-active hidden>
+        <div class="timer-clock serif" data-clock>20:00</div>
+        <p class="timer-phase mono" data-phase aria-live="polite">Sprint</p>
+
+        <div class="timer-progress" data-progress aria-hidden="true">
+          <div class="timer-progress-fill" data-progress-fill></div>
+        </div>
+
+        <div class="timer-controls-row">
+          <button type="button" class="btn btn--primary" data-start-pause>Pause</button>
+          <button type="button" class="btn btn--sm" data-trim>&minus;1</button>
+          <button type="button" class="btn btn--sm" data-extend="1">+1</button>
+          <button type="button" class="btn btn--sm" data-extend="5">+5</button>
+          <button type="button" class="btn btn--sm" data-reset>Reset</button>
+        </div>
       </div>
     </div>
 
-    <div class="timer-controls">
-      <div class="timer-controls-row">
-        <button type="button" class="btn btn--primary" data-start-pause>Start</button>
-        <button type="button" class="btn" data-reset>Reset</button>
-        <button type="button" class="btn btn--sm timer-sound" data-sound-toggle aria-pressed="false">
-          <span data-sound-label>Sound off</span>
-        </button>
-      </div>
-
-      <div class="timer-length mono" role="group" aria-label="Session length" data-length>
-        <button type="button" data-length-value="90">90 min</button>
-        <button type="button" data-length-value="120" aria-pressed="true">120 min</button>
-        <button type="button" data-length-value="150">150 min</button>
-      </div>
-
-      <p class="timer-hint mono small muted">Space to start or pause · R to reset</p>
+    <div class="timer-toggles">
+      <button type="button" class="btn btn--sm timer-sound" data-sound-toggle aria-pressed="false">
+        <span data-sound-label>Sound off</span>
+      </button>
+      <button type="button" class="btn btn--sm timer-notify" data-notify-toggle aria-pressed="false">
+        <span data-notify-label>Notifications off</span>
+      </button>
+      <span class="mono small muted" data-notify-hint hidden>blocked in browser</span>
     </div>
+
+    <p class="timer-hint mono small muted">Space pauses or resumes the active phase &middot; R resets</p>
   </div>
 </section>
+
+<div class="timer-flash" data-flash aria-hidden="true">
+  <span class="timer-flash-text serif" data-flash-text></span>
+</div>

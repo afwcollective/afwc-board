@@ -30,6 +30,13 @@
     </div>
   </footer>
 
+  <%# GATE: floating sprint-timer widget, leaders/architects only (see
+      src/routes/timer.js for the matching server-side gate on /timer
+      itself — both must move together if a future agent widens access). %>
+  <% if (isLeader) { %>
+    <%- include('partials/timer-widget') %>
+  <% } %>
+
   <% (typeof pageJs !== 'undefined' && Array.isArray(pageJs) ? pageJs : []).forEach(function (src) { %>
     <script src="<%= src %>" defer></script>
   <% }) %>

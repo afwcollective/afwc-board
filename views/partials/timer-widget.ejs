@@ -1,0 +1,109 @@
+<%# Floating sprint-timer widget — leaders/architects only.
+    Included once from layout.ejs, inside an isLeader guard. Renders on every
+    page so a leader can run a sprint while browsing the board, drafts, or
+    admin without losing their place. Suppressed on /timer itself (the full
+    page already shows the same controls) — see the pathname check at the top
+    of timer-widget.js.
+
+    The stylesheet link lives here rather than in <head> (views/partials/head.ejs
+    is out of scope for this change, and only the /timer route sets pageCss)
+    — every other page needs it too, since this partial is what puts the
+    widget there. A <link> works fine outside <head>; the /timer page loads
+    it twice (once from its own pageCss, once from here), which is harmless. %>
+<link rel="stylesheet" href="/css/timer.css">
+<div class="timer-widget" data-timer-widget>
+  <button type="button" class="timer-chip mono" data-widget-chip aria-haspopup="dialog" aria-expanded="false">
+    <span data-widget-chip-label>Timer</span>
+  </button>
+
+  <div class="timer-panel" data-widget-panel hidden role="dialog" aria-label="Sprint timer">
+    <div class="timer-panel-head">
+      <span class="timer-panel-title mono" data-widget-title>Sprint timer</span>
+      <button type="button" class="timer-panel-close" data-widget-close aria-label="Close timer panel">&times;</button>
+    </div>
+
+    <div class="timer-panel-body">
+      <div data-widget-chooser>
+        <p class="timer-banner timer-banner--sm mono" data-widget-banner hidden></p>
+
+        <div class="timer-widget-modes">
+          <div class="timer-widget-mode" data-widget-mode-group="sprint">
+            <button type="button" class="timer-mode-btn timer-mode-btn--sm" data-widget-start-mode="sprint">
+              <span class="timer-mode-label mono">Sprint</span>
+              <span class="timer-mode-duration serif" data-widget-mode-duration="sprint">20:00</span>
+            </button>
+            <div class="timer-presets timer-presets--sm mono" role="group" aria-label="Sprint length">
+              <button type="button" data-widget-preset-mode="sprint" data-widget-preset-value="15">15</button>
+              <button type="button" data-widget-preset-mode="sprint" data-widget-preset-value="20">20</button>
+              <button type="button" data-widget-preset-mode="sprint" data-widget-preset-value="25">25</button>
+              <button type="button" data-widget-preset-mode="sprint" data-widget-preset-value="30">30</button>
+            </div>
+          </div>
+
+          <div class="timer-widget-mode" data-widget-mode-group="break">
+            <button type="button" class="timer-mode-btn timer-mode-btn--sm" data-widget-start-mode="break">
+              <span class="timer-mode-label mono">Break</span>
+              <span class="timer-mode-duration serif" data-widget-mode-duration="break">10:00</span>
+            </button>
+            <div class="timer-presets timer-presets--sm mono" role="group" aria-label="Break length">
+              <button type="button" data-widget-preset-mode="break" data-widget-preset-value="5">5</button>
+              <button type="button" data-widget-preset-mode="break" data-widget-preset-value="10">10</button>
+              <button type="button" data-widget-preset-mode="break" data-widget-preset-value="15">15</button>
+            </div>
+          </div>
+        </div>
+
+        <label class="timer-widget-custom mono small">
+          <span>Custom</span>
+          <input type="number" class="timer-custom" data-widget-custom min="1" max="180" placeholder="min" inputmode="numeric" aria-label="Custom minutes">
+          <select data-widget-custom-target aria-label="Apply custom minutes to">
+            <option value="sprint">Sprint</option>
+            <option value="break">Break</option>
+          </select>
+        </label>
+
+        <button type="button" class="timer-auto-toggle timer-auto-toggle--sm mono" data-widget-auto-toggle aria-expanded="false">
+          Auto session <span aria-hidden="true">&#9662;</span>
+        </button>
+        <div class="timer-length timer-length--sm mono" data-widget-auto-panel hidden role="group" aria-label="Auto session length">
+          <button type="button" data-widget-auto-start="90">90</button>
+          <button type="button" data-widget-auto-start="120">120</button>
+          <button type="button" data-widget-auto-start="150">150</button>
+        </div>
+      </div>
+
+      <div data-widget-active hidden>
+        <p class="timer-phase timer-phase--sm mono" data-widget-phase aria-live="polite">Sprint</p>
+        <div class="timer-clock timer-clock--sm serif" data-widget-clock>20:00</div>
+        <div class="timer-progress timer-progress--sm" data-widget-progress aria-hidden="true">
+          <div class="timer-progress-fill" data-widget-progress-fill></div>
+        </div>
+        <div class="timer-controls-row timer-controls-row--sm">
+          <button type="button" class="btn btn--sm btn--primary" data-widget-start-pause>Pause</button>
+          <button type="button" class="btn btn--sm" data-widget-trim>&minus;1</button>
+          <button type="button" class="btn btn--sm" data-widget-extend="1">+1</button>
+          <button type="button" class="btn btn--sm" data-widget-extend="5">+5</button>
+          <button type="button" class="btn btn--sm" data-widget-reset>Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="timer-panel-foot">
+      <button type="button" class="btn btn--sm" data-widget-sound-toggle aria-pressed="false">
+        <span data-widget-sound-label>Sound off</span>
+      </button>
+      <button type="button" class="btn btn--sm" data-widget-notify-toggle aria-pressed="false">
+        <span data-widget-notify-label>Notify off</span>
+      </button>
+      <span class="mono small muted" data-widget-notify-hint hidden>blocked in browser</span>
+      <a class="btn btn--sm timer-panel-fullscreen" href="/timer">Full screen</a>
+    </div>
+  </div>
+</div>
+
+<div class="timer-flash" data-widget-flash aria-hidden="true">
+  <span class="timer-flash-text serif" data-widget-flash-text></span>
+</div>
+
+<script src="/js/timer-core.js" defer></script>
+<script src="/js/timer-widget.js" defer></script>
