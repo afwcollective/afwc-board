@@ -3,8 +3,10 @@
     <p class="eyebrow">First run · One time only</p>
     <h1>Set up your board</h1>
     <p class="lede measure">
-      This creates the first group leader and the shared passcode the rest of the
-      group will use to register. Once it's done this page is gone for good.
+      This creates the architect account — full control of the board — and the
+      shared passcode the rest of the group will use to register. The architect
+      is the only account that can hand out and take back leadership, and the
+      only one nobody else can deactivate. Once it's done this page is gone for good.
     </p>
 
     <%- include('../partials/form-errors', { errors: errors }) %>
@@ -12,7 +14,7 @@
     <form method="post" action="/setup" class="form" autocomplete="off">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>">
 
-      <p class="form-legend">Your leader account</p>
+      <p class="form-legend">Your architect account</p>
 
       <div class="field">
         <label for="display_name">Display name</label>

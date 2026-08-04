@@ -664,3 +664,32 @@ p:last-child { margin-bottom: 0; }
 .skip-form input[type="date"] { width: auto; min-width: 0; }
 .skip-list { list-style: none; margin: 6px 0 0; padding: 0; }
 .skip-list li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 3px 0; }
+
+/* ============================================================
+   ROLE TIERS — the members table gained an architect badge, a
+   term-length control inside the promote form, and the (architect
+   only) hand-over card. Same register as the phase-6 badge block
+   above: mono, hairline, one blue.
+   ============================================================ */
+
+/* The owner tier reads as solid ink — one step past .badge--leader's outline,
+   and nowhere near the R. House red, which only ever means "we sit here". */
+.badge--architect { border-color: var(--ink); color: #fff; background: var(--ink); }
+
+/* Controls that sit inline in a table cell next to a .btn--sm, rather than in
+   a .field stack: same shell, sized to the row. */
+.inline-input {
+  font-family: var(--sans); font-size: 14px; color: var(--ink);
+  background: #fff; border: 1px solid var(--hair); border-bottom: 2px solid var(--ink-3);
+  padding: 5px 8px; border-radius: 0; vertical-align: middle; max-width: 100%;
+}
+.inline-input:focus { outline: 2px solid var(--blue); outline-offset: 1px; }
+.promote-form { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.promote-form .btn { margin-left: 0; }
+
+/* The transfer card is a deliberate full stop under the table, not a control
+   you can hit by accident on the way past. */
+.transfer-card { margin-top: var(--s6); border-top-color: var(--amber); }
+.transfer-card h2 { margin: var(--s2) 0 var(--s3); }
+.transfer-card .form { margin-top: var(--s5); }
+.transfer-card select { width: 100%; }

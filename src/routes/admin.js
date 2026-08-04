@@ -1,9 +1,10 @@
 'use strict';
 
 const express = require('express');
-const { getSetting, setSetting } = require('../db');
+const { db, getSetting, setSetting } = require('../db');
 const { users, meetings, recurring, announcements } = require('../models');
-const { requireLeader } = require('../auth/middleware');
+const { requireLeader, requireArchitect } = require('../auth/middleware');
+const roles = require('../auth/roles');
 const { hashSecret } = require('../auth/passwords');
 const sessions = require('../auth/sessions');
 const { generateResetCode, RESET_CODE_TTL_MS } = require('../util/resetcode');
@@ -480,29 +481,120 @@ router.post('/passcode', (req, res) => {
   return res.redirect('/admin');
 });
 
-/* ---------------------------------------------------------------- members */
+/* ---------------------------------------------------------------- members
+ *
+ * The one invariant this screen protects: THERE IS ALWAYS EXACTLY ONE
+ * ARCHITECT. It replaces the old "last active leader" head-count entirely —
+ * because the architect can never be demoted or deactivated by anybody, the
+ * board can never end up with nobody holding the keys, and so demoting or
+ * booting an ordinary leader needs no arithmetic at all.
+ *
+ * Who may act on whom:
+ *   target is architect  → nobody, including the architect themselves.
+ *                          The only exit is POST /members/transfer.
+ *   target is leader     → the architect only.
+ *   target is member     → any leader (and the architect).
+ * denyReason() is that table; every mutating route below asks it first, so the
+ * buttons the view hides are also refused server-side.
+ */
+
+const ARCHITECT_ONLY = 'Only the architect can manage leaders.';
+const ARCHITECT_PROTECTED =
+  'The architect account cannot be deactivated, demoted or reset by anyone. ' +
+  'Transfer the architect role first.';
+
+function denyReason(actor, target) {
+  if (roles.isArchitectRole(target.role)) return ARCHITECT_PROTECTED;
+  if (roles.isLeaderRole(target.role) && !roles.isArchitectUser(actor)) return ARCHITECT_ONLY;
+  return null;
+}
+
+/** 403 through the shared error view — same shape requireLeader/requireArchitect use. */
+function forbid(next, message) {
+  const err = new Error(message);
+  err.status = 403;
+  return next(err);
+}
+
+/**
+ * Loads the target of a /members/:id action and applies denyReason. Returns the
+ * user row, or null when the caller has already answered the request.
+ */
+function targetFor(req, res, next) {
+  const target = users.byId(req.params.id);
+  if (!target) {
+    next();
+    return null;
+  }
+  const reason = denyReason(req.user, target);
+  if (reason) {
+    forbid(next, reason);
+    return null;
+  }
+  return target;
+}
+
+/** The promote form's duration choices. `until` reads the companion date input. */
+const TERM_OPTIONS = [
+  { value: 'permanent', label: 'Permanent' },
+  { value: '1w', label: '1 week' },
+  { value: '1m', label: '1 month' },
+  { value: 'until', label: 'Until date…' },
+];
+
+/**
+ * Turn the promote form's term choice into a UTC ISO expiry (or null for
+ * permanent). "Until <date>" means through the END of that Baltimore day, so a
+ * leader asked to cover until the 17th still has the keys on the 17th.
+ */
+function readTerm(body) {
+  const term = String(body.term || 'permanent').trim();
+  if (term === 'permanent') return { expiresAt: null };
+  if (term === '1w') return { expiresAt: new Date(Date.now() + 7 * 24 * 3600e3).toISOString() };
+  if (term === '1m') {
+    const d = new Date();
+    d.setUTCMonth(d.getUTCMonth() + 1);
+    return { expiresAt: d.toISOString() };
+  }
+  if (term === 'until') {
+    const raw = String(body.until_date || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      return { error: 'Pick the date the temporary leadership should end.' };
+    }
+    const iso = dates.localInputToUtcIso(`${raw}T23:59`);
+    if (!iso) return { error: 'That end date could not be read — pick it from the date box.' };
+    if (iso <= new Date().toISOString()) {
+      return { error: 'That end date has already passed — pick a date in the future.' };
+    }
+    return { expiresAt: iso };
+  }
+  return { error: 'Pick how long the leadership should last.' };
+}
+
+/** "until Aug 17" / "permanently", for the flash after a promotion. */
+const termPhrase = (expiresAt) =>
+  expiresAt ? `until ${dates.formatDate(expiresAt)}` : 'permanently, until someone removes it';
 
 router.get('/members', (req, res) => {
+  const people = users.list();
   res.render('admin/members', {
     title: 'Members',
     bodyClass: 'page-admin',
-    people: users.list(),
+    pageJs: ['/js/members.js'],
+    people,
     leaderCount: users.countLeaders(),
+    termOptions: TERM_OPTIONS,
+    todayLocal: dates.localDateKey(new Date()),
+    // Only the architect sees (or can use) the hand-over form.
+    transferCandidates: roles.isArchitectUser(req.user)
+      ? people.filter((p) => p.is_active && p.id !== req.user.id)
+      : [],
   });
 });
 
-/** True while `target` is the only active leader — the one guard everything below respects. */
-function isLastActiveLeader(target) {
-  return target.role === 'leader' && target.is_active === 1 && users.countLeaders() <= 1;
-}
-
 router.post('/members/:id/deactivate', (req, res, next) => {
-  const target = users.byId(req.params.id);
-  if (!target) return next();
-  if (isLastActiveLeader(target)) {
-    flash(res, 'error', `${target.display_name} is the only active leader — promote someone else first.`);
-    return res.redirect('/admin/members');
-  }
+  const target = targetFor(req, res, next);
+  if (!target) return undefined;
   users.setActive(target.id, 0);
   sessions.destroyAllForUser(target.id);
   flash(res, 'ok', `${target.display_name} was deactivated and signed out everywhere.`);
@@ -510,36 +602,85 @@ router.post('/members/:id/deactivate', (req, res, next) => {
 });
 
 router.post('/members/:id/reactivate', (req, res, next) => {
-  const target = users.byId(req.params.id);
-  if (!target) return next();
+  const target = targetFor(req, res, next);
+  if (!target) return undefined;
   users.setActive(target.id, 1);
   flash(res, 'ok', `${target.display_name} can sign in again.`);
   return res.redirect('/admin/members');
 });
 
+/**
+ * Promote to leader, permanently or for a fixed term. Leaders may do this to
+ * members; changing an existing leader's term is leader management, so
+ * denyReason sends it to the architect (shortening a term is a demotion in
+ * slow motion). Nothing here can ever mint an architect — only /transfer can.
+ */
 router.post('/members/:id/promote', (req, res, next) => {
-  const target = users.byId(req.params.id);
-  if (!target) return next();
-  users.setRole(target.id, 'leader');
-  flash(res, 'ok', `${target.display_name} is now a leader.`);
+  const target = targetFor(req, res, next);
+  if (!target) return undefined;
+
+  const { expiresAt, error } = readTerm(req.body);
+  if (error) {
+    flash(res, 'error', error);
+    return res.redirect('/admin/members');
+  }
+
+  users.setRole(target.id, roles.LEADER, expiresAt);
+  flash(res, 'ok', `${target.display_name} is now a leader — ${termPhrase(expiresAt)}.`);
   return res.redirect('/admin/members');
 });
 
 router.post('/members/:id/demote', (req, res, next) => {
-  const target = users.byId(req.params.id);
-  if (!target) return next();
-  if (isLastActiveLeader(target)) {
-    flash(res, 'error', `${target.display_name} is the only active leader — promote someone else first.`);
-    return res.redirect('/admin/members');
+  const target = targetFor(req, res, next);
+  if (!target) return undefined;
+  users.setRole(target.id, roles.MEMBER);
+  flash(res, 'ok', `${target.display_name} is a member again. They stay signed in; the admin console is gone.`);
+  return res.redirect('/admin/members');
+});
+
+/**
+ * Hand the board over. The architect picks an active account, types TRANSFER,
+ * and swaps chairs: the target becomes architect, the outgoing architect
+ * becomes a permanent leader. Both terms are cleared, and nobody is signed out
+ * — a change of role is not a boot.
+ */
+const CONFIRM_WORD = 'TRANSFER';
+
+router.post('/members/transfer', requireArchitect, (req, res) => {
+  const target = users.byId(Number(req.body.user_id));
+  const confirm = String(req.body.confirm || '').trim();
+
+  if (!target || !target.is_active) {
+    flash(res, 'error', 'Pick an active member or leader to hand the architect role to.');
+    return res.redirect('/admin/members#transfer');
   }
-  users.setRole(target.id, 'member');
-  flash(res, 'ok', `${target.display_name} is a member again.`);
+  if (target.id === req.user.id) {
+    flash(res, 'error', 'You already hold the architect role.');
+    return res.redirect('/admin/members#transfer');
+  }
+  if (confirm !== CONFIRM_WORD) {
+    flash(res, 'error', `Nothing changed — type ${CONFIRM_WORD} exactly (capitals) to confirm the hand-over.`);
+    return res.redirect('/admin/members#transfer');
+  }
+
+  const handOver = db.transaction((fromId, toId) => {
+    users.setRole(toId, roles.ARCHITECT, null);
+    users.setRole(fromId, roles.LEADER, null);
+  });
+  handOver(req.user.id, target.id);
+
+  flash(
+    res,
+    'ok',
+    `${target.display_name} (@${target.username}) is now the architect of this board. ` +
+      'You are a permanent leader — everyone stays signed in, but only they can manage leaders from here on.'
+  );
   return res.redirect('/admin/members');
 });
 
 router.post('/members/:id/reset-code', (req, res, next) => {
-  const target = users.byId(req.params.id);
-  if (!target) return next();
+  const target = targetFor(req, res, next);
+  if (!target) return undefined;
   const code = generateResetCode();
   const expiresAt = new Date(Date.now() + RESET_CODE_TTL_MS).toISOString();
   users.setResetCode(target.id, sessions.sha256(code), expiresAt);

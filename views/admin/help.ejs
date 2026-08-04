@@ -9,6 +9,7 @@
     </p>
 
     <ul class="handbook-toc mono small">
+      <li><a href="#who">Who can do what</a></li>
       <li><a href="#joining">How members join</a></li>
       <li><a href="#weekly">The weekly schedule</a></li>
       <li><a href="#meetings">One-off meetings and the map pin</a></li>
@@ -19,6 +20,82 @@
       <li><a href="#backups">Backups</a></li>
       <li><a href="#protection">What draft protection can and can't do</a></li>
     </ul>
+
+    <article class="handbook-section" id="who">
+      <h2>Who can do what</h2>
+      <p>
+        Everyone in the group sits in one of four tiers. They stack: each one
+        can do everything the tier above it can, plus a little more.
+      </p>
+
+      <h3>Member</h3>
+      <p>
+        Everyone who registers with the group passcode. Members read and post on
+        the discussion board, upload drafts, read other people's drafts, and
+        comment page by page. This is the whole group — most people never need
+        anything else.
+      </p>
+
+      <h3>Session host <span class="badge">Coming soon</span></h3>
+      <p>
+        A member who is running one particular meeting — the person who opens
+        the sprint timer and says where the group is sitting that day. It is a
+        per-meeting job, not a standing rank, and it isn't built yet; when it
+        lands it will hang off a single date rather than off someone's account.
+      </p>
+
+      <h3>Leader</h3>
+      <p>
+        The volunteers who run the site: everything in this admin console.
+        Announcements, the weekly schedule and one-off meetings, the map pin,
+        booting and restoring <em>members</em>, reset codes for members, the
+        reader watermark, the group passcode, backups. A leader can also make
+        another member a leader.
+      </p>
+      <p>
+        <strong>Leadership can be temporary.</strong> On
+        <a href="/admin/members">Members</a>, "Make leader" comes with a
+        length: <em>Permanent</em>, <em>1 week</em>, <em>1 month</em>, or
+        <em>Until date…</em> for anything else. A temporary leader shows in the
+        table as <span class="mono">LEADER · until Aug 17</span>. When that
+        moment passes the site quietly puts them back to member — no button to
+        remember, no awkward conversation. They are <em>not</em> signed out and
+        they lose nothing they wrote; the admin console simply stops being
+        there on their next click. Promote them again any time. Use it for
+        someone covering while you're away, or a new co-leader on a trial run.
+      </p>
+
+      <h3>Architect</h3>
+      <p>
+        One person, the owner of the board — whoever first set the site up.
+        The architect has every leader power, plus the ones that point
+        <em>downward</em>: only the architect can remove someone's leadership,
+        boot a leader, or generate a reset code for a leader. Ordinary leaders
+        see no buttons at all on another leader's row, and the site refuses
+        those requests even if someone tries to send one by hand.
+      </p>
+      <p>
+        The architect's own account is protected in both directions: nobody —
+        not another leader, not even the architect themselves — can deactivate
+        it, demote it, or force a reset code onto it. That is the safety net.
+        Because there is always exactly one architect, and the architect can
+        never be removed, this site can never lock itself out, no matter who
+        gets demoted or booted.
+      </p>
+      <p>
+        <strong>Handing it over.</strong> Stepping back from the group, or
+        passing the site to whoever is taking over? At the bottom of
+        <a href="/admin/members#transfer">Members</a> there is a
+        <strong>Transfer the architect role</strong> box — visible only to the
+        architect. Pick the person, type <span class="mono">TRANSFER</span> in
+        capitals, and confirm. They become the architect; you become a
+        permanent leader. Everyone stays signed in and nothing else on the site
+        changes. It is one-way: after that only <em>they</em> can hand it back.
+        If you only want another pair of hands in the admin console, promote
+        them to leader instead — that is the everyday tool; this one is for
+        succession.
+      </p>
+    </article>
 
     <article class="handbook-section" id="joining">
       <h2>How members join</h2>
@@ -132,28 +209,40 @@
         in again with their old password.
       </p>
       <p>
-        You can also promote a member to leader or demote a leader back to
-        member from the same table. The app always keeps at least one active
-        leader — it will refuse to demote or deactivate the last one, so the
-        group can never accidentally lock itself out.
+        You can also promote a member to leader from the same table, for good
+        or for a set length of time — see
+        <a href="#who">Who can do what</a> for how the tiers fit together, and
+        for who is allowed to boot or demote whom. Booting a <em>member</em> is
+        any leader's call; anything aimed at a <em>leader</em> belongs to the
+        architect alone, and the architect's own row can't be acted on by
+        anybody, which is what keeps the group from locking itself out.
       </p>
     </article>
 
     <article class="handbook-section" id="reset-codes">
       <h2>Password reset codes</h2>
       <p>
-        There's no email on this site, so password resets go through you. When
-        someone forgets their password, find them on
+        There's no email on this site, so password resets go through you. What
+        you are handing out is <strong>temporary access</strong>, not a
+        password: leaders never see, choose, or set anyone's real password, and
+        nobody — not a leader, not the architect — can read an existing one.
+        Only the member themselves ever types the password they end up with.
+      </p>
+      <p>
+        When someone forgets theirs, find them on
         <a href="/admin/members">Members</a> and click "Generate reset code."
         A one-time code appears on screen for 48 hours — copy it and text it to
         them right then, because it is <strong>only shown once</strong>. They
         go to <span class="mono">/reset</span>, enter their username and the
-        code, and pick a new password.
+        code, and pick a new password of their own. The code dies the moment it
+        is used.
       </p>
       <p>
         Codes expire automatically after 48 hours and a fresh code replaces any
         unused one, so it's safe to generate a new code if the first text
-        didn't go through.
+        didn't go through. Reset codes for <em>leaders</em> can only be
+        generated by the architect, and no code can ever be forced onto the
+        architect's account.
       </p>
     </article>
 

@@ -4,12 +4,15 @@
     <h1>Members</h1>
     <p class="lede measure">
       Deactivating someone signs them out everywhere instantly — their session
-      cookie stops working on their very next click. There always has to be at
-      least one active leader, so the last one can’t demote or deactivate themselves.
+      cookie stops working on their very next click. Leaders can boot, restore
+      and promote <em>members</em>; only the architect can demote, boot or reset
+      another <em>leader</em>, and the architect's own account can't be touched
+      by anyone. That's why the board can never lock itself out.
     </p>
 
     <p class="form-actions form-actions--top">
       <a class="btn btn--sm" href="/admin">Back to admin</a>
+      <% if (isArchitect) { %><a class="btn btn--sm" href="#transfer">Transfer architect role…</a><% } %>
     </p>
 
     <div class="table-wrap">
@@ -25,6 +28,13 @@
         </thead>
         <tbody>
           <% people.forEach(function (p) { %>
+            <%
+              var rowIsArchitect = p.role === 'architect';
+              var rowIsLeader = p.role === 'leader';
+              /* Mirror of denyReason() in src/routes/admin.js — the routes
+                 refuse the same things whether or not these buttons render. */
+              var canManageRow = !rowIsArchitect && (!rowIsLeader || isArchitect);
+            %>
             <tr>
               <td>
                 <%= p.display_name %>
@@ -32,9 +42,15 @@
                 <br><span class="mono small muted">@<%= p.username %></span>
               </td>
               <td>
-                <span class="badge <%= p.role === 'leader' ? 'badge--leader' : '' %>">
-                  <%= p.role === 'leader' ? 'Leader' : 'Member' %>
-                </span>
+                <% if (rowIsArchitect) { %>
+                  <span class="badge badge--architect">Architect</span>
+                <% } else if (rowIsLeader) { %>
+                  <span class="badge badge--leader">Leader<%
+                    if (p.role_expires_at) { %> · until <%= dates.formatDateTiny(p.role_expires_at) %><% }
+                  %></span>
+                <% } else { %>
+                  <span class="badge">Member</span>
+                <% } %>
               </td>
               <td>
                 <span class="badge <%= p.is_active ? 'badge--ok' : 'badge--warn' %>">
@@ -43,41 +59,113 @@
               </td>
               <td class="small"><%= dates.formatDateShort(p.created_at) %></td>
               <td class="right nowrap">
-                <% if (p.is_active) { %>
-                  <form method="post" action="/admin/members/<%= p.id %>/deactivate" class="inline-form"
-                        onsubmit="return confirm('Deactivate ' + <%- JSON.stringify(p.display_name) %> + '? They will be signed out immediately.')">
-                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-                    <button class="btn btn--sm btn--danger" type="submit">Deactivate</button>
-                  </form>
+                <% if (rowIsArchitect) { %>
+                  <span class="small muted">Protected — the architect can't be booted, demoted or reset.</span>
+                <% } else if (!canManageRow) { %>
+                  <span class="small muted">Only the architect can manage leaders.</span>
                 <% } else { %>
-                  <form method="post" action="/admin/members/<%= p.id %>/reactivate" class="inline-form">
-                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-                    <button class="btn btn--sm" type="submit">Reactivate</button>
-                  </form>
-                <% } %>
 
-                <% if (p.role === 'leader') { %>
-                  <form method="post" action="/admin/members/<%= p.id %>/demote" class="inline-form">
-                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-                    <button class="btn btn--sm" type="submit">Remove leader</button>
-                  </form>
-                <% } else { %>
-                  <form method="post" action="/admin/members/<%= p.id %>/promote" class="inline-form">
-                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-                    <button class="btn btn--sm" type="submit">Make leader</button>
-                  </form>
-                <% } %>
+                  <% if (p.is_active) { %>
+                    <form method="post" action="/admin/members/<%= p.id %>/deactivate" class="inline-form"
+                          data-confirm="Deactivate <%= p.display_name %>? They will be signed out immediately.">
+                      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                      <button class="btn btn--sm btn--danger" type="submit">Deactivate</button>
+                    </form>
+                  <% } else { %>
+                    <form method="post" action="/admin/members/<%= p.id %>/reactivate" class="inline-form">
+                      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                      <button class="btn btn--sm" type="submit">Reactivate</button>
+                    </form>
+                  <% } %>
 
-                <form method="post" action="/admin/members/<%= p.id %>/reset-code" class="inline-form"
-                      onsubmit="return confirm('Generate a reset code for ' + <%- JSON.stringify(p.display_name) %> + '?')">
-                  <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-                  <button class="btn btn--sm" type="submit">Generate reset code</button>
-                </form>
+                  <% if (rowIsLeader) { %>
+                    <form method="post" action="/admin/members/<%= p.id %>/demote" class="inline-form"
+                          data-confirm="Remove <%= p.display_name %>'s leadership? They stay signed in as a member.">
+                      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                      <button class="btn btn--sm" type="submit">Remove leader</button>
+                    </form>
+                  <% } else { %>
+                    <form method="post" action="/admin/members/<%= p.id %>/promote" class="inline-form promote-form">
+                      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                      <select name="term" class="inline-input" data-term-select
+                              aria-label="How long <%= p.display_name %> stays a leader">
+                        <% termOptions.forEach(function (opt) { %>
+                          <option value="<%= opt.value %>"><%= opt.label %></option>
+                        <% }) %>
+                      </select>
+                      <!-- Visible by default so the form still works with no JS;
+                           members.js hides it until "Until date…" is chosen. -->
+                      <input type="date" name="until_date" class="inline-input" data-term-date
+                             min="<%= todayLocal %>"
+                             aria-label="Last day <%= p.display_name %> stays a leader">
+                      <button class="btn btn--sm" type="submit">Make leader</button>
+                    </form>
+                  <% } %>
+
+                  <form method="post" action="/admin/members/<%= p.id %>/reset-code" class="inline-form"
+                        data-confirm="Generate a reset code for <%= p.display_name %>?">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                    <button class="btn btn--sm" type="submit">Generate reset code</button>
+                  </form>
+
+                <% } %>
               </td>
             </tr>
           <% }) %>
         </tbody>
       </table>
     </div>
+
+    <% if (isArchitect) { %>
+      <div class="card transfer-card" id="transfer">
+        <p class="eyebrow eyebrow--muted">Architect only · one-way</p>
+        <h2>Transfer the architect role</h2>
+        <p class="measure">
+          The architect is the single owner of this board: the only account that
+          can demote or boot a leader, and the only one nobody else can touch.
+          Handing it over makes <strong>them</strong> the architect and
+          <strong>you</strong> a permanent leader — from that moment you can no
+          longer manage leaders, and you cannot take the role back yourself.
+          Nobody is signed out, and nothing else changes.
+        </p>
+        <p class="measure">
+          Only do this if you are stepping back from the group, or if a
+          co-leader is taking over running the site. If you just want more
+          people in the admin console, promote them to leader instead.
+        </p>
+
+        <% if (!transferCandidates.length) { %>
+          <p class="empty">There is nobody else active to hand it to yet.</p>
+        <% } else { %>
+          <form method="post" action="/admin/members/transfer" class="form"
+                data-confirm="Hand the architect role over for good? You become a permanent leader and cannot take it back yourself.">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+            <div class="field">
+              <label for="transfer_user">Hand the architect role to</label>
+              <select id="transfer_user" name="user_id" required>
+                <option value="">Choose a person…</option>
+                <% transferCandidates.forEach(function (p) { %>
+                  <option value="<%= p.id %>">
+                    <%= p.display_name %> (@<%= p.username %>) — <%= p.role === 'leader' ? 'leader' : 'member' %>
+                  </option>
+                <% }) %>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="transfer_confirm">Type <span class="mono">TRANSFER</span> to confirm</label>
+              <input id="transfer_confirm" name="confirm" type="text" required autocomplete="off"
+                     pattern="TRANSFER" placeholder="TRANSFER">
+              <p class="hint">Capitals, exactly. Anything else and nothing happens.</p>
+            </div>
+
+            <div class="form-actions">
+              <button class="btn btn--sm btn--danger" type="submit">Transfer the architect role</button>
+            </div>
+          </form>
+        <% } %>
+      </div>
+    <% } %>
   </div>
 </section>

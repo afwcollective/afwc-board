@@ -58,7 +58,7 @@ const stmt = {
   find: () =>
     db.prepare(
       `SELECT s.token_hash, s.user_id, s.csrf_token, s.expires_at,
-              u.id AS uid, u.username, u.display_name, u.role, u.is_active
+              u.id AS uid, u.username, u.display_name, u.role, u.role_expires_at, u.is_active
          FROM sessions s JOIN users u ON u.id = s.user_id
         WHERE s.token_hash = ?`
     ),

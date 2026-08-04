@@ -8,14 +8,20 @@
 
 const { db } = require('./db');
 const dates = require('./util/dates');
+const roles = require('./auth/roles');
 
 /* ---------------- users ---------------- */
 
 const users = {
   count: () => db.prepare('SELECT COUNT(*) AS n FROM users').get().n,
   countActive: () => db.prepare('SELECT COUNT(*) AS n FROM users WHERE is_active = 1').get().n,
+  /** Active accounts with admin-console access — leaders plus the architect. */
   countLeaders: () =>
-    db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'leader' AND is_active = 1").get().n,
+    db
+      .prepare("SELECT COUNT(*) AS n FROM users WHERE role IN ('leader','architect') AND is_active = 1")
+      .get().n,
+  /** The one architect, or undefined on a board that has not run /setup yet. */
+  architect: () => db.prepare("SELECT * FROM users WHERE role = 'architect' ORDER BY id LIMIT 1").get(),
   byUsername: (username) => db.prepare('SELECT * FROM users WHERE username = ?').get(String(username || '').trim()),
   byId: (id) => db.prepare('SELECT * FROM users WHERE id = ?').get(id),
   create: ({ username, display_name, email, password_hash, role }) =>
@@ -29,23 +35,34 @@ const users = {
         display_name: String(display_name).trim(),
         email: email ? String(email).trim() : null,
         password_hash,
-        role: role === 'leader' ? 'leader' : 'member',
+        role: roles.isRole(role) ? role : roles.MEMBER,
       }),
   touchLogin: (id) =>
     db.prepare("UPDATE users SET last_login_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?").run(id),
 
-  /** Everyone, for the leader-only /admin/members table. Leaders first, then A–Z. */
+  /** Everyone, for the leader-only /admin/members table. Architect, leaders, then A–Z. */
   list: () =>
     db
       .prepare(
-        `SELECT id, username, display_name, role, is_active, created_at, last_login_at
+        `SELECT id, username, display_name, role, role_expires_at, is_active, created_at, last_login_at
            FROM users
-          ORDER BY role = 'leader' DESC, is_active DESC, display_name COLLATE NOCASE`
+          ORDER BY CASE role WHEN 'architect' THEN 0 WHEN 'leader' THEN 1 ELSE 2 END,
+                   is_active DESC, display_name COLLATE NOCASE`
       )
       .all(),
   setActive: (id, active) => db.prepare('UPDATE users SET is_active = ? WHERE id = ?').run(active ? 1 : 0, id),
-  setRole: (id, role) =>
-    db.prepare("UPDATE users SET role = ? WHERE id = ?").run(role === 'leader' ? 'leader' : 'member', id),
+
+  /**
+   * Set a role, and with it the term. `expiresAt` is a UTC ISO string or null
+   * (permanent) and is only kept for the leader tier — a member has nothing to
+   * expire and the architect chair never does, so both are stored NULL. An
+   * unknown role falls back to 'member' rather than throwing at a CHECK.
+   */
+  setRole: (id, role, expiresAt = null) => {
+    const next = roles.isRole(role) ? role : roles.MEMBER;
+    const expires = next === roles.LEADER && expiresAt ? String(expiresAt) : null;
+    return db.prepare('UPDATE users SET role = ?, role_expires_at = ? WHERE id = ?').run(next, expires, id);
+  },
   setPasswordHash: (id, password_hash) =>
     db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(password_hash, id),
   setResetCode: (id, reset_code_hash, reset_expires_at) =>

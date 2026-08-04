@@ -39,7 +39,9 @@ function safeNext(value) {
 
 /* ------------------------------------------------------------------ setup */
 // Available only while the users table is empty. Hard 404 afterwards, so the
-// route cannot be used to mint a second leader.
+// route cannot be used to mint a second architect. The first account is the
+// board's architect — the one tier that can demote or boot a leader, and the
+// one account nobody else can touch (see src/auth/roles.js).
 
 router.get('/setup', (req, res, next) => {
   if (!noUsersYet()) return next();
@@ -75,7 +77,7 @@ router.post('/setup', (req, res, next) => {
     display_name,
     email,
     password_hash: hashPassword(password),
-    role: 'leader',
+    role: 'architect',
   });
   setSetting('group_passcode_hash', hashSecret(String(passcode).trim()));
   setSetting('site_name', 'AFWC Board');
@@ -83,7 +85,7 @@ router.post('/setup', (req, res, next) => {
   const user = users.byId(info.lastInsertRowid);
   sessions.createSession(res, user, req);
   users.touchLogin(user.id);
-  flash(res, 'ok', `Welcome, ${user.display_name}. Your board is live — set the next meeting.`);
+  flash(res, 'ok', `Welcome, ${user.display_name}. You are the architect of this board — set the next meeting.`);
   return res.redirect('/admin');
 });
 

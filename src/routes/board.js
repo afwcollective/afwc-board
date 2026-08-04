@@ -17,6 +17,7 @@
 const express = require('express');
 const { db } = require('../db');
 const { requireMember } = require('../auth/middleware');
+const { isLeaderUser } = require('../auth/roles');
 const { mdToHtml, toPlainText } = require('../util/sanitize');
 const { flash } = require('../util/flash');
 
@@ -76,8 +77,7 @@ const trim = (v, max) => {
   return s ? s.slice(0, max) : '';
 };
 
-const canModerate = (req, authorId) =>
-  req.user.role === 'leader' || req.user.id === authorId;
+const canModerate = (req, authorId) => isLeaderUser(req.user) || req.user.id === authorId;
 
 /* -------------------------------------------------------------------- /board */
 
@@ -157,7 +157,7 @@ router.post('/:id/reply', (req, res, next) => {
   const thread = threadById(req.params.id);
   if (!thread) return next();
 
-  const isLeader = req.user.role === 'leader';
+  const isLeader = isLeaderUser(req.user);
   if (thread.is_locked && !isLeader) {
     flash(res, 'error', 'This thread is locked.');
     return res.redirect(`/board/${thread.id}`);

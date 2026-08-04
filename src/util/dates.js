@@ -74,6 +74,12 @@ const formatDateShort = (v) => {
   return d ? fmt({ weekday: 'short', month: 'short', day: 'numeric' }).format(d) : '';
 };
 
+/** "Aug 10" — no weekday, for badges where every character costs width. */
+const formatDateTiny = (v) => {
+  const d = toDate(v);
+  return d ? fmt({ month: 'short', day: 'numeric' }).format(d) : '';
+};
+
 /** "6:30 PM" */
 const formatTime = (v) => {
   const d = toDate(v);
@@ -213,6 +219,7 @@ module.exports = {
   utcIsoToLocalInput,
   formatDate,
   formatDateShort,
+  formatDateTiny,
   formatTime,
   formatDateTime,
   weekday,

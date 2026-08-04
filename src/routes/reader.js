@@ -26,6 +26,7 @@ const express = require('express');
 
 const { db, getSetting } = require('../db');
 const { requireMember } = require('../auth/middleware');
+const { isLeaderUser } = require('../auth/roles');
 const { flash } = require('../util/flash');
 const { mdToHtml, toPlainText } = require('../util/sanitize');
 const dates = require('../util/dates');
@@ -146,7 +147,7 @@ function fail(res, next, mode, status, message) {
   next(err);
 }
 
-const isLeader = (user) => !!user && user.role === 'leader';
+const isLeader = (user) => isLeaderUser(user);
 const canManageDraft = (user, draft) => !!user && (user.id === draft.user_id || isLeader(user));
 
 function commentJson(row, user) {

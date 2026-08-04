@@ -24,6 +24,7 @@ const multer = require('multer');
 
 const { db } = require('../db');
 const { requireMember } = require('../auth/middleware');
+const { isLeaderUser } = require('../auth/roles');
 const { flash } = require('../util/flash');
 const { toPlainText } = require('../util/sanitize');
 const { ingestDraft } = require('../services/ingest');
@@ -223,12 +224,12 @@ const q = {
     ),
 };
 
-const canManage = (user, draft) => !!user && (user.id === draft.user_id || user.role === 'leader');
+const canManage = (user, draft) => !!user && (user.id === draft.user_id || isLeaderUser(user));
 
 /* ---------------- library ---------------- */
 
 router.get('/', requireMember, (req, res) => {
-  const isLeader = req.user.role === 'leader' ? 1 : 0;
+  const isLeader = isLeaderUser(req.user) ? 1 : 0;
   const drafts = q.library().all(req.user.id, isLeader);
   res.render('drafts/index', {
     title: 'Draft library',
