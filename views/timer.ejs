@@ -1,0 +1,33 @@
+<section class="section timer-section">
+  <div class="wrap wrap--narrow timer-wrap">
+    <p class="eyebrow">The Agile Fiction Writers Collective · Sprint timer</p>
+
+    <div class="timer" data-timer data-state="idle" data-phase-kind="settle">
+      <div class="timer-clock" data-clock>10:00</div>
+      <p class="timer-phase mono" data-phase aria-live="polite">Press start when you're ready</p>
+
+      <div class="timer-progress" data-progress aria-hidden="true">
+        <div class="timer-progress-fill" data-progress-fill></div>
+        <div class="timer-ticks" data-ticks></div>
+      </div>
+    </div>
+
+    <div class="timer-controls">
+      <div class="timer-controls-row">
+        <button type="button" class="btn btn--primary" data-start-pause>Start</button>
+        <button type="button" class="btn" data-reset>Reset</button>
+        <button type="button" class="btn btn--sm timer-sound" data-sound-toggle aria-pressed="false">
+          <span data-sound-label>Sound off</span>
+        </button>
+      </div>
+
+      <div class="timer-length mono" role="group" aria-label="Session length" data-length>
+        <button type="button" data-length-value="90">90 min</button>
+        <button type="button" data-length-value="120" aria-pressed="true">120 min</button>
+        <button type="button" data-length-value="150">150 min</button>
+      </div>
+
+      <p class="timer-hint mono small muted">Space to start or pause · R to reset</p>
+    </div>
+  </div>
+</section>
