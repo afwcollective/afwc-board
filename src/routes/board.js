@@ -207,7 +207,7 @@ router.post('/:id/lock', (req, res, next) => {
   const thread = threadById(req.params.id);
   if (!thread) return next();
 
-  if (req.user.role !== 'leader') {
+  if (!isLeaderUser(req.user)) {
     const err = new Error('Leaders only.');
     err.status = 403;
     return next(err);
