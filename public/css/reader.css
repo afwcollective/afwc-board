@@ -117,6 +117,24 @@
   text-align: center;
 }
 
+/* how many comment threads on THIS page are still open — filled by comments.js */
+.pager-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  margin-right: 2px;
+  border-radius: 10px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 10.5px;
+  letter-spacing: .04em;
+  line-height: 1;
+}
+.pager-open[hidden] { display: none; }
+
 /* ---------------- body layout ---------------- */
 
 .reader-body {
@@ -318,8 +336,19 @@
 }
 .rc-empty { color: var(--ink-4); font-size: 14px; margin: var(--s3) 0; }
 
-.rc-item { padding: var(--s3) 0; border-bottom: 1px solid var(--hair-2); }
-.rc-item:last-child { border-bottom: 0; }
+/* ---------------- one thread = one card ----------------
+ * The card is the unit: a comment, its replies indented under a rule, and the
+ * reply box. Open threads sit at the top of the list (the server sorts them);
+ * resolved ones collapse to .rc-resolved-line and sink to the bottom.
+ */
+
+.rc-thread {
+  padding: var(--s3) 0;
+  border-bottom: 1px solid var(--hair-2);
+}
+.rc-thread:last-child { border-bottom: 0; }
+.rc-thread--mine { border-left: 2px solid var(--blue-3); padding-left: 10px; margin-left: -12px; }
+.rc-thread--removed .rc-body { display: none; }
 
 .rc-item-meta {
   display: flex;
@@ -332,6 +361,9 @@
   text-transform: uppercase;
   font-size: 10.5px;
 }
+/* everything after the timestamp is pushed to the right edge of the row */
+.rc-item-meta .rc-when { margin-right: auto; }
+
 .rc-anchor {
   font: inherit;
   border: 1px solid var(--hair);
@@ -342,21 +374,122 @@
 }
 .rc-anchor:hover { background: var(--blue); color: #fff; border-color: var(--blue); }
 .rc-author { color: var(--ink-2); }
-.rc-del {
+.rc-author--gone { color: var(--ink-4); font-style: italic; text-transform: none; letter-spacing: .04em; }
+
+.rc-del,
+.rc-resolve {
   font: inherit;
   border: 0;
   background: none;
-  color: var(--red);
   cursor: pointer;
   padding: 2px 0;
-  margin-left: auto;
   text-decoration: underline;
 }
-.rc-del[disabled] { opacity: .5; cursor: default; }
+.rc-del { color: var(--red); }
+.rc-resolve { color: var(--green); }
+.rc-del[disabled],
+.rc-resolve[disabled] { opacity: .5; cursor: default; }
 
 .rc-body { font-size: 14.5px; line-height: 1.55; }
 .rc-body p { margin: 0 0 .6em; }
 .rc-body > :last-child { margin-bottom: 0; }
+
+.rc-removed {
+  margin: 0;
+  font-size: 13.5px;
+  font-style: italic;
+  color: var(--ink-4);
+}
+
+/* ---------------- replies ---------------- */
+
+.rc-replies {
+  list-style: none;
+  margin: var(--s3) 0 0;
+  padding: 0 0 0 12px;
+  border-left: 2px solid var(--hair-2);
+}
+.rc-reply + .rc-reply { margin-top: var(--s3); padding-top: var(--s3); border-top: 1px solid var(--hair-2); }
+.rc-reply .rc-item-meta { margin-bottom: 4px; }
+.rc-reply .rc-body { font-size: 14px; }
+.rc-reply--mine { border-left: 2px solid var(--blue-3); margin-left: -14px; padding-left: 12px; }
+
+/* ---------------- reply affordance ---------------- */
+
+.rc-link {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  border: 0;
+  background: none;
+  color: var(--blue);
+  cursor: pointer;
+  padding: 2px 0;
+  text-decoration: underline;
+}
+.rc-link:hover { color: var(--blue-2); }
+
+.rc-reply-zone { margin: var(--s2) 0 0; }
+.rc-reply-hint {
+  margin: var(--s2) 0 0;
+  color: var(--ink-4);
+  font-size: 12.5px;
+}
+
+.rc-reply-form { margin: var(--s2) 0 0; }
+.rc-reply-form textarea {
+  width: 100%;
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  border: 1px solid var(--hair);
+  background: var(--card);
+  color: var(--ink);
+  resize: vertical;
+}
+.rc-reply-form textarea:focus { outline: 2px solid var(--blue); outline-offset: 1px; }
+.rc-reply-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--s3);
+  margin-top: 6px;
+}
+
+/* ---------------- resolved ---------------- */
+
+.rc-thread--resolved { background: rgba(241, 238, 232, .5); }
+
+.rc-resolved-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin: 0;
+  color: var(--ink-4);
+  letter-spacing: .08em;
+  font-size: 10.5px;
+}
+.rc-resolved-tag { color: var(--green); text-transform: uppercase; letter-spacing: .1em; }
+.rc-dot { color: var(--hair); }
+.rc-line-actions { display: flex; gap: 10px; margin-left: auto; }
+
+.rc-resolved-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 6px;
+  padding: 4px 8px;
+  background: var(--card);
+  border-left: 2px solid var(--green);
+  color: var(--green);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+.rc-resolved-banner .rc-link { margin-left: auto; }
 
 .rc-form {
   border-top: 1px solid var(--hair-2);
@@ -389,6 +522,89 @@
   margin: var(--s2) 0 0;
   font-size: 13.5px;
   color: var(--red);
+}
+
+/* ---------------- the conversation ----------------
+ * Full width, beneath the pages and the comments column — the room the whole
+ * draft is talked about in, as opposed to the margin notes in the panel. It is
+ * the draft's ordinary board thread, rendered in place (views/drafts/show.ejs)
+ * and posted with a plain form, so it works with or without JavaScript.
+ */
+
+.draft-conversation {
+  margin-top: clamp(32px, 5vw, 64px);
+  padding-top: var(--s5);
+  border-top: 1px solid var(--hair-2);
+  /* clear of the bottom-sheet tab on narrow screens */
+  padding-bottom: 96px;
+  scroll-margin-top: calc(var(--reader-bar-h) + 12px);
+}
+
+.dc-intro {
+  margin: 0 0 var(--s5);
+  color: var(--ink-3);
+  font-size: 15px;
+}
+
+.dc-empty {
+  margin: 0 0 var(--s5);
+  padding: var(--s4);
+  border: 1px dashed var(--hair);
+  background: var(--card);
+  color: var(--ink-4);
+  font-size: 15px;
+}
+
+.dc-list {
+  list-style: none;
+  margin: 0 0 var(--s6);
+  padding: 0;
+  display: grid;
+  gap: var(--s3);
+}
+
+.dc-post {
+  background: var(--card);
+  border: 1px solid var(--hair-2);
+  border-left: var(--rule-heavy) solid var(--hair-2);
+  padding: var(--s4);
+  scroll-margin-top: calc(var(--reader-bar-h) + 12px);
+}
+.dc-post:target { border-left-color: var(--blue); }
+
+.dc-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0 0 var(--s2);
+  color: var(--ink-4);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  font-size: 10.5px;
+}
+.dc-author { color: var(--ink-2); }
+.dc-meta time { margin-right: auto; }
+
+.dc-del button {
+  font: inherit;
+  border: 0;
+  background: none;
+  color: var(--red);
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.dc-body { font-size: 15.5px; line-height: 1.62; }
+
+.dc-form { max-width: 70ch; }
+.dc-form textarea { resize: vertical; }
+
+@media (min-width: 1100px) {
+  /* the panel is docked to the right up here, so the conversation only needs
+     to clear the reading column, not the whole page */
+  .draft-conversation { padding-bottom: var(--s6); }
 }
 
 /* ---------------- narrow: bottom sheet ---------------- */
@@ -463,6 +679,7 @@
   .reader-pane,
   .reader-watermark,
   .reader-comments,
+  .draft-conversation,
   .rc-tab,
   .reader-tools,
   .site-header,

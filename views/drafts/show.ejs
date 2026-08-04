@@ -40,12 +40,15 @@
             <span class="pager-readout mono">
               <span data-page-current>1</span> / <span data-page-total><%= draft.page_count %></span>
             </span>
+            <%# unresolved threads on the page you are looking at — comments.js fills it %>
+            <span class="pager-open mono" data-page-open hidden
+                  title="Open comment threads on this page"></span>
             <button type="button" class="btn btn--sm" data-page-next aria-label="Next page">›</button>
           </div>
         <% } %>
 
-        <% if (threadId) { %>
-          <a class="btn btn--sm" href="/board/<%= threadId %>">Discussion</a>
+        <% if (thread) { %>
+          <a class="btn btn--sm" href="#conversation">Conversation</a>
         <% } %>
       </div>
     </div>
@@ -151,7 +154,7 @@
         </div>
 
         <form class="rc-form" data-comment-form>
-          <label class="visually-hidden" for="rc-body">Add a comment on this page</label>
+          <label class="visually-hidden" for="rc-body">Start a comment thread on this page</label>
           <textarea id="rc-body" name="body" rows="3" maxlength="4000"
                     placeholder="Note on this page…"></textarea>
           <div class="rc-form-actions">
@@ -167,6 +170,73 @@
       </button>
     <% } %>
   </div>
+
+  <%# ---------------------------------------------------------------------
+      THE CONVERSATION — the draft's general discussion, full width beneath the
+      pages. Server-rendered and posted with a plain form (no fetch, no JS
+      dependency), and it is the SAME board thread that /board/:threadId
+      renders, so nothing here forks the data. Hidden entirely when a leader has
+      removed the thread — see src/routes/reader.js.
+      --------------------------------------------------------------------- %>
+  <% if (thread) { %>
+    <section class="reader-wrap draft-conversation" id="conversation">
+      <p class="section-label">The conversation</p>
+
+      <p class="dc-intro measure">
+        Praise, reactions, the bigger notes that do not belong to any one page.
+        Everything here is the whole draft, in the open.
+        <% if (thread.is_locked) { %>
+          <span class="badge badge--warn">Locked</span>
+        <% } %>
+      </p>
+
+      <% if (!posts.length) { %>
+        <p class="dc-empty">
+          Nothing said yet. Be the first — writers remember the person who reads all the way through.
+        </p>
+      <% } else { %>
+        <ol class="dc-list">
+          <% posts.forEach(function (p) { %>
+            <li class="dc-post" id="conv-<%= p.id %>">
+              <p class="dc-meta mono small">
+                <span class="dc-author"><%= p.author_name || 'a member' %></span>
+                <time datetime="<%= dates.isoAttr(p.created_at) %>"
+                      title="<%= dates.formatDateTime(p.created_at) %>"><%= dates.relative(p.created_at) %></time>
+                <% if (isLeader || (currentUser && currentUser.id === p.user_id)) { %>
+                  <form method="post" action="/drafts/<%= draft.id %>/conversation/<%= p.id %>/delete"
+                        class="inline-form dc-del" data-confirm="Remove this post?">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                    <button type="submit">Remove</button>
+                  </form>
+                <% } %>
+              </p>
+              <div class="dc-body prose"><%- p.body_html %></div>
+            </li>
+          <% }) %>
+        </ol>
+      <% } %>
+
+      <% if (!canPost) { %>
+        <p class="notice">This conversation is locked. Only leaders can post here now.</p>
+      <% } else { %>
+        <form method="post" action="/drafts/<%= draft.id %>/conversation" class="form dc-form">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <div class="field">
+            <label for="conv-body">Say something about the whole draft</label>
+            <textarea id="conv-body" name="body_md" rows="4" required maxlength="20000"
+                      placeholder="What worked, what you would read again, what you would push on…"></textarea>
+            <p class="hint">
+              Plain text works. *italics*, **bold**, and blank lines between paragraphs.
+              This also appears on <a href="/board/<%= thread.id %>">the board</a>.
+            </p>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn--primary">Post to the conversation</button>
+          </div>
+        </form>
+      <% } %>
+    </section>
+  <% } %>
 
   <script type="application/json" data-reader-data>
     <%- JSON.stringify({

@@ -45,9 +45,12 @@
                 <span class="dot">·</span>
               <% } %>
               <span><%= d.comment_count %> comment<%= d.comment_count === 1 ? '' : 's' %></span>
+              <%# The draft's discussion is embedded in the reader now (see
+                  views/drafts/show.ejs) rather than living out on the board,
+                  so the library points at the section, not at the thread. %>
               <% if (d.thread_id) { %>
                 <span class="dot">·</span>
-                <a href="/board/<%= d.thread_id %>">Discussion</a>
+                <a href="/drafts/<%= d.id %>#conversation">Conversation</a>
               <% } %>
             </p>
 
