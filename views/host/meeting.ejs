@@ -1,0 +1,95 @@
+<% var offsite = ctx.meeting.kind === 'offsite'; %>
+<section class="section">
+  <div class="wrap">
+    <p class="eyebrow">Hosting</p>
+    <h1><%= ctx.meeting.title || 'Session' %></h1>
+    <p class="lede measure">
+      <%= dates.formatDate(ctx.meeting.starts_at) %> — a one-off meeting the
+      leaders put on the calendar. You can move the start time, say where the
+      group is sitting and leave a note; the title, the kind of event and the
+      address stay with the leaders.
+    </p>
+
+    <% if (!ctx.mine) { %>
+      <p class="notice">
+        You're opening this as a leader.
+        <%= ctx.meeting.host_name ? ctx.meeting.host_name + ' is the host.' : 'Nobody is assigned as host.' %>
+      </p>
+    <% } %>
+
+    <% if (ctx.past) { %>
+      <p class="notice">This meeting has already happened, so it's read-only now.</p>
+      <dl class="meeting-facts">
+        <dt>Started</dt><dd><%= dates.formatDateTime(ctx.meeting.starts_at) %></dd>
+        <dt>Where</dt><dd><%= ctx.meeting.location_label || '—' %></dd>
+        <% if (ctx.meeting.notes) { %><dt>Note</dt><dd><%= ctx.meeting.notes %></dd><% } %>
+      </dl>
+      <p class="section-foot"><a class="btn btn--sm" href="/host">Back to your sessions</a></p>
+    <% } else { %>
+
+      <%- include('../partials/form-errors', { errors: errors }) %>
+
+      <form method="post" action="/host/meeting/<%= ctx.meeting.id %>" class="form meeting-form" id="host-form">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+        <div class="meeting-form-grid">
+          <div class="meeting-form-fields">
+            <div class="field">
+              <label for="starts_at_local">Date and time <span class="optional">(Baltimore time)</span></label>
+              <input id="starts_at_local" name="starts_at_local" type="datetime-local" required
+                     value="<%= values.starts_at_local %>">
+            </div>
+
+            <% if (offsite) { %>
+              <div class="field">
+                <p class="section-label">Where <span class="members-only-tag mono">members only</span></p>
+                <p><%= ctx.meeting.address || 'No address set — ask a leader to add one.' %></p>
+                <p class="hint">The address belongs to the leaders. Ask them if it needs to change.</p>
+              </div>
+            <% } %>
+
+            <div class="field">
+              <label for="location_label">Where we're sitting</label>
+              <input id="location_label" name="location_label" type="text" maxlength="120"
+                     value="<%= values.location_label %>"
+                     placeholder="<%= offsite ? 'Back garden, through the side gate' : 'Long communal table by the coffee stall' %>">
+            </div>
+
+            <div class="field">
+              <label for="notes">Note for the day <span class="optional">(optional)</span></label>
+              <textarea id="notes" name="notes" rows="4" maxlength="2000"
+                        placeholder="We're on the patio today."><%= values.notes %></textarea>
+            </div>
+          </div>
+
+          <% if (!offsite) { %>
+            <div class="meeting-form-map">
+              <p class="section-label">The table</p>
+              <%- include('../partials/floormap', {
+                    markerX: values.map_x,
+                    markerY: values.map_y,
+                    interactive: true
+                  }) %>
+
+              <input type="hidden" id="map_x" name="map_x" value="<%= values.map_x === null || values.map_x === undefined ? '' : values.map_x %>">
+              <input type="hidden" id="map_y" name="map_y" value="<%= values.map_y === null || values.map_y === undefined ? '' : values.map_y %>">
+
+              <p class="map-readout">
+                <span class="eyebrow eyebrow--muted">Marker</span>
+                <span id="map-readout-value" class="mono">
+                  <%= (values.map_x === null || values.map_x === undefined || values.map_x === '') ? 'not placed' : values.map_x + '% / ' + values.map_y + '%' %>
+                </span>
+                <button type="button" class="btn btn--sm" id="map-clear">Clear marker</button>
+              </p>
+            </div>
+          <% } %>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn--primary">Save this session</button>
+          <a class="btn btn--sm" href="/host">Cancel</a>
+        </div>
+      </form>
+    <% } %>
+  </div>
+</section>

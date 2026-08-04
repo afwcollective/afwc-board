@@ -7,6 +7,22 @@ const sessions = require('./sessions');
 const roles = require('./roles');
 const { flash } = require('../util/flash');
 
+/**
+ * Required lazily: src/models.js is the query layer that sits ON TOP of this
+ * file's siblings, and pulling it in at module scope would make the auth layer
+ * depend on it at load time. One call, one statement — see loadUser below.
+ */
+function hostsHasUpcoming(userId) {
+  try {
+    // eslint-disable-next-line global-require
+    return require('../models').hosts.hasUpcoming(userId);
+  } catch (err) {
+    // A database that has not reached migration 004 yet has no occurrence_hosts
+    // table. Nobody is hosting anything on it, which is exactly what to answer.
+    return false;
+  }
+}
+
 /** Prepared lazily — db.js is required before the users table exists on boot. */
 const expireLeaderStmt = () =>
   db.prepare(
@@ -36,9 +52,19 @@ function expireRoleIfDue(session) {
 /**
  * loadUser — resolves the session cookie into req.session / req.user and
  * publishes the view locals every template relies on:
- *   currentUser, isLeader, isArchitect, csrfToken, hasUsers
+ *   currentUser, isLeader, isArchitect, isHost, csrfToken, hasUsers
  * Booted users (is_active = 0) are treated as logged out and their cookie is
  * dropped, so deactivation takes effect on the very next request.
+ *
+ * res.locals.isHost — "this member is running a session in the next 30 days."
+ * One prepared statement (models.hosts.hasUpcoming), run only when somebody is
+ * signed in, and false for everyone else. It is published as a FACT, not as a
+ * gate: nothing in this file or in the routes it fronts uses it to allow or
+ * refuse anything. Host authorization is always per-occurrence and checked
+ * server-side against the actual assignment in src/routes/host.js — a boolean
+ * that says "hosting something, somewhere, this month" is not permission to
+ * edit any particular meeting. Views may use it to offer a link; the sprint
+ * timer's own gate is wired to it separately.
  */
 function loadUser(req, res, next) {
   let session = null;
@@ -70,6 +96,7 @@ function loadUser(req, res, next) {
   res.locals.currentUser = req.user;
   res.locals.isLeader = roles.isLeaderUser(req.user);
   res.locals.isArchitect = roles.isArchitectUser(req.user);
+  res.locals.isHost = req.user ? hostsHasUpcoming(req.user.id) : false;
   res.locals.csrfToken = sessions.ensureCsrfToken(req, res, session);
   res.locals.currentPath = req.path;
   next();

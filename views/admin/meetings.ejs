@@ -85,6 +85,44 @@
                       <% }) %>
                     </ul>
                   <% } %>
+
+                  <% if (r.hostDates.length) { %>
+                    <form method="post" action="/admin/recurring/<%= r.id %>/host" class="skip-form">
+                      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                      <label class="mono small" for="host-date-<%= r.id %>">Give one session to a host</label>
+                      <select id="host-date-<%= r.id %>" name="local_date">
+                        <% r.hostDates.forEach(function (o) { %>
+                          <option value="<%= o.local_date %>">
+                            <%= dates.formatDateShort(o.starts_at) %><%= o.host ? ' — ' + o.host.display_name : '' %>
+                          </option>
+                        <% }) %>
+                      </select>
+                      <select name="user_id" aria-label="Host for that date">
+                        <option value="none">Nobody</option>
+                        <% memberOptions.forEach(function (p) { %>
+                          <option value="<%= p.id %>"><%= p.display_name %></option>
+                        <% }) %>
+                      </select>
+                      <button class="btn btn--sm" type="submit">Assign host</button>
+                    </form>
+                  <% } %>
+
+                  <% if (r.hosts.length) { %>
+                    <ul class="skip-list small">
+                      <% r.hosts.forEach(function (h) { %>
+                        <li>
+                          <span class="badge badge--leader">Host</span>
+                          <span><%= h.display_name %> · <%= dates.formatDate(h.local_date + 'T12:00:00Z') %></span>
+                          <form method="post" action="/admin/recurring/<%= r.id %>/host" class="inline-form">
+                            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                            <input type="hidden" name="local_date" value="<%= h.local_date %>">
+                            <input type="hidden" name="user_id" value="none">
+                            <button class="btn btn--sm" type="submit">Remove</button>
+                          </form>
+                        </li>
+                      <% }) %>
+                    </ul>
+                  <% } %>
                 </td>
               </tr>
             <% }) %>
@@ -100,7 +138,7 @@
       <div class="table-wrap">
         <table class="table">
           <thead>
-            <tr><th>When</th><th>Title</th><th>Table</th><th>Marker</th><th class="right">Actions</th></tr>
+            <tr><th>When</th><th>Title</th><th>Where</th><th>Host</th><th class="right">Actions</th></tr>
           </thead>
           <tbody>
             <% upcoming.forEach(function (m) { %>
@@ -109,11 +147,21 @@
                   <%= dates.formatDateShort(m.starts_at) %>, <%= dates.formatTime(m.starts_at) %>
                   <% if (m.is_cancelled) { %><span class="badge badge--warn">Cancelled</span><% } %>
                 </td>
-                <td><%= m.title || '—' %></td>
-                <td><%= m.location_label || '—' %></td>
-                <td class="mono small">
-                  <%= (m.map_x !== null && m.map_y !== null) ? (m.map_x + ' / ' + m.map_y) : '—' %>
+                <td>
+                  <%= m.title || '—' %>
+                  <% if (m.kind === 'offsite') { %><br><span class="badge">Off-site</span><% } %>
                 </td>
+                <td>
+                  <% if (m.kind === 'offsite') { %>
+                    <span class="muted small">address hidden — members only</span>
+                  <% } else { %>
+                    <%= m.location_label || '—' %>
+                    <span class="mono small muted">
+                      <%= (m.map_x !== null && m.map_y !== null) ? (m.map_x + ' / ' + m.map_y) : 'no pin' %>
+                    </span>
+                  <% } %>
+                </td>
+                <td class="small"><%= m.host_name || '—' %></td>
                 <td class="right nowrap">
                   <a class="btn btn--sm" href="/admin/meetings/<%= m.id %>/edit">Edit</a>
                   <form method="post" action="/admin/meetings/<%= m.id %>/cancel" class="inline-form">

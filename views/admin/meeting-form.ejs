@@ -5,9 +5,29 @@
 
     <%- include('../partials/form-errors', { errors: errors }) %>
 
+    <% var isOffsite = values.kind === 'offsite'; %>
+
     <form method="post" action="<%= meeting ? '/admin/meetings/' + meeting.id : '/admin/meetings' %>"
-          class="form meeting-form" id="meeting-form">
+          class="form meeting-form" id="meeting-form"
+          enctype="multipart/form-data" data-csrf="<%= csrfToken %>">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+      <fieldset class="field field--kind">
+        <legend>What kind of meeting is this?</legend>
+        <label class="check">
+          <input type="radio" name="kind" value="rhouse" <%= isOffsite ? '' : 'checked' %>>
+          <span><strong>R. House</strong> — the usual: a table on the floor map, public.</span>
+        </label>
+        <label class="check">
+          <input type="radio" name="kind" value="offsite" <%= isOffsite ? 'checked' : '' %>>
+          <span><strong>Off-site event</strong> — someone's home or another venue.</span>
+        </label>
+        <p class="hint">
+          An off-site event's address, details and attachments are shown to
+          <strong>signed-in members only</strong>. The public front page gets the
+          title, the date and time, and a note to sign in for the rest.
+        </p>
+      </fieldset>
 
       <div class="meeting-form-grid">
         <div class="meeting-form-fields">
@@ -18,12 +38,12 @@
           </div>
 
           <div class="field">
-            <label for="title">Title <span class="optional">(optional)</span></label>
+            <label for="title">Title <span class="optional" data-title-optional<%= isOffsite ? ' hidden' : '' %>>(optional)</span></label>
             <input id="title" name="title" type="text" maxlength="120" value="<%= values.title %>"
                    placeholder="Critique night">
           </div>
 
-          <div class="field">
+          <div class="field" data-kind-panel="rhouse"<%= isOffsite ? ' hidden' : '' %>>
             <label for="location_label">Where we're sitting</label>
             <input id="location_label" name="location_label" type="text" maxlength="120"
                    value="<%= values.location_label %>"
@@ -31,10 +51,42 @@
             <p class="hint">Shown next to the map on the front page. Plain words beat coordinates.</p>
           </div>
 
+          <div class="field" data-kind-panel="offsite"<%= isOffsite ? '' : ' hidden' %>>
+            <label for="address">Address <span class="members-only-tag mono">members only</span></label>
+            <input id="address" name="address" type="text" maxlength="200"
+                   value="<%= values.address %>"
+                   placeholder="1420 Hollins St, Baltimore — ring the middle bell">
+            <p class="hint">Never shown to a logged-out visitor. Nobody outside the group sees it.</p>
+          </div>
+
+          <div class="field" data-kind-panel="offsite"<%= isOffsite ? '' : ' hidden' %>>
+            <label for="body_md">Details <span class="members-only-tag mono">members only</span></label>
+            <textarea id="body_md" name="body_md" rows="6" maxlength="20000"
+                      placeholder="Park on the street after 6. Bring a chair if you have one.&#10;&#10;**Doorbell is broken** — text Brian when you're outside."><%= values.body_md %></textarea>
+            <p class="hint">Plain text or simple markdown, same as an announcement.</p>
+          </div>
+
           <div class="field">
-            <label for="notes">Notes <span class="optional">(optional)</span></label>
-            <textarea id="notes" name="notes" rows="4" maxlength="2000"
+            <label for="notes">Notes <span class="optional">(optional, public)</span></label>
+            <textarea id="notes" name="notes" rows="3" maxlength="2000"
                       placeholder="Bring 10 pages. Parking is easiest on Sisson St."><%= values.notes %></textarea>
+          </div>
+
+          <div class="field">
+            <label for="host_user_id">Host <span class="optional">(optional)</span></label>
+            <select id="host_user_id" name="host_user_id">
+              <option value="">Nobody yet</option>
+              <% memberOptions.forEach(function (p) { %>
+                <option value="<%= p.id %>" <%= String(values.host_user_id) === String(p.id) ? 'selected' : '' %>>
+                  <%= p.display_name %> (<%= p.username %>)
+                </option>
+              <% }) %>
+            </select>
+            <p class="hint">
+              The member running this one meeting. They get an edit page at
+              <span class="mono">/host</span> for the start time, the table, the
+              pin and a note — nothing else. Their name shows on the front page.
+            </p>
           </div>
 
           <div class="field field--check">
@@ -45,31 +97,81 @@
           </div>
         </div>
 
-        <div class="meeting-form-map">
-          <p class="section-label">The table</p>
-          <%- include('../partials/floormap', {
-                markerX: values.map_x,
-                markerY: values.map_y,
-                interactive: true
-              }) %>
+        <div class="meeting-form-side">
+          <div data-kind-panel="rhouse" class="meeting-form-map"<%= isOffsite ? ' hidden' : '' %>>
+            <p class="section-label">The table</p>
+            <%- include('../partials/floormap', {
+                  markerX: values.map_x,
+                  markerY: values.map_y,
+                  interactive: true
+                }) %>
 
-          <input type="hidden" id="map_x" name="map_x" value="<%= values.map_x === null || values.map_x === undefined ? '' : values.map_x %>">
-          <input type="hidden" id="map_y" name="map_y" value="<%= values.map_y === null || values.map_y === undefined ? '' : values.map_y %>">
+            <input type="hidden" id="map_x" name="map_x" value="<%= values.map_x === null || values.map_x === undefined ? '' : values.map_x %>">
+            <input type="hidden" id="map_y" name="map_y" value="<%= values.map_y === null || values.map_y === undefined ? '' : values.map_y %>">
 
-          <p class="map-readout">
-            <span class="eyebrow eyebrow--muted">Marker</span>
-            <span id="map-readout-value" class="mono">
-              <%= (values.map_x === null || values.map_x === undefined || values.map_x === '') ? 'not placed' : values.map_x + '% / ' + values.map_y + '%' %>
-            </span>
-            <button type="button" class="btn btn--sm" id="map-clear">Clear marker</button>
-          </p>
+            <p class="map-readout">
+              <span class="eyebrow eyebrow--muted">Marker</span>
+              <span id="map-readout-value" class="mono">
+                <%= (values.map_x === null || values.map_x === undefined || values.map_x === '') ? 'not placed' : values.map_x + '% / ' + values.map_y + '%' %>
+              </span>
+              <button type="button" class="btn btn--sm" id="map-clear">Clear marker</button>
+            </p>
+          </div>
+
+          <div data-kind-panel="offsite" class="event-files"<%= isOffsite ? '' : ' hidden' %>>
+            <p class="section-label">Attachments <span class="members-only-tag mono">members only</span></p>
+            <p class="hint hint--block">
+              Up to <%= limits.maxFiles %> files, <%= limits.formats %>, <%= limits.maxMb %> MB each.
+              A flyer, a photo of the block, a menu. Members open them in the
+              browser; nobody signed out can reach them at all.
+            </p>
+
+            <% if (files.length) { %>
+              <ul class="file-list">
+                <% files.forEach(function (f) { %>
+                  <li>
+                    <a href="/events/<%= f.meeting_id %>/files/<%= f.id %>" target="_blank" rel="noopener">
+                      <%= f.original_name || f.stored_name %>
+                    </a>
+                    <span class="mono small muted"><%= Math.max(1, Math.round((f.size || 0) / 1024)) %> KB</span>
+                    <label class="check check--inline">
+                      <input type="checkbox" name="remove_attachment" value="<%= f.id %>">
+                      <span>Remove</span>
+                    </label>
+                  </li>
+                <% }) %>
+              </ul>
+            <% } else { %>
+              <p class="empty">Nothing attached yet.</p>
+            <% } %>
+
+            <div class="field">
+              <label for="attachments">Add files</label>
+              <input id="attachments" name="attachments" type="file" multiple
+                     accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf"
+                     <%= isOffsite ? '' : 'disabled' %>>
+            </div>
+          </div>
         </div>
       </div>
 
       <div class="form-actions">
-        <button type="submit" class="btn btn--primary"><%= meeting ? 'Save changes' : 'Schedule it' %></button>
+        <button type="submit" class="btn btn--primary" data-submit><%= meeting ? 'Save changes' : 'Schedule it' %></button>
         <a class="btn btn--sm" href="/admin/meetings">Cancel</a>
       </div>
+
+      <p class="upload-progress" data-progress hidden>
+        <span class="upload-bar"><span class="upload-bar-fill" data-progress-bar></span></span>
+        <span class="mono small" data-progress-label>Saving…</span>
+      </p>
+
+      <noscript>
+        <p class="notice">
+          This form needs JavaScript to attach files (it carries the security
+          token in a header, which a plain file upload cannot do). Everything
+          else about a meeting can still be set from the Meetings list.
+        </p>
+      </noscript>
     </form>
   </div>
 </section>

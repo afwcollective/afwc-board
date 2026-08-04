@@ -1,0 +1,57 @@
+<section class="section">
+  <div class="wrap">
+    <p class="eyebrow">Hosting</p>
+    <h1>Sessions you're running</h1>
+    <p class="lede measure">
+      A leader has handed you these ones. You can set the start time, where in
+      the room the group sits, the pin on the floor map, and a note for the
+      day — for that session only. Everything else stays as the leaders set it.
+    </p>
+
+    <% if (!sessions.length) { %>
+      <p class="empty">
+        Nothing in the next <%= windowDays %> days. When a leader gives you a
+        session it shows up here, and this page is the only thing you need.
+      </p>
+    <% } else { %>
+      <ul class="host-list">
+        <% sessions.forEach(function (s) { %>
+          <li class="card host-card">
+            <p class="eyebrow eyebrow--muted">
+              <%= dates.relative(s.starts_at) %>
+              <% if (s.type === 'recurring') { %> · every <%= dates.weekdayName(s.weekday) %><% } %>
+            </p>
+            <h2 class="host-card-title"><%= s.title || 'Session' %></h2>
+            <p class="host-card-when">
+              <time datetime="<%= dates.isoAttr(s.starts_at) %>"><%= dates.formatDate(s.starts_at) %></time>
+              · <%= dates.formatTime(s.starts_at) %>
+            </p>
+
+            <p class="host-card-where">
+              <% if (s.kind === 'offsite') { %>
+                <span class="badge">Off-site</span>
+              <% } else if (s.location_label) { %>
+                <span class="badge badge--rhouse">Table</span> <%= s.location_label %>
+              <% } else { %>
+                <span class="muted">No table set yet.</span>
+              <% } %>
+            </p>
+
+            <% if (s.notes) { %><p class="host-card-note"><%= s.notes %></p><% } %>
+
+            <p class="host-card-flags small">
+              <% if (s.overridden) { %><span class="badge badge--ok">Your changes are live</span><% } %>
+              <% if (s.paused) { %><span class="badge badge--warn">The weekly rule is paused</span><% } %>
+              <% if (s.skipped) { %><span class="badge badge--warn">Leaders called this date off</span><% } %>
+              <% if (s.is_cancelled) { %><span class="badge badge--warn">Cancelled</span><% } %>
+            </p>
+
+            <p><a class="btn btn--primary btn--sm" href="<%= s.editPath %>">Set up this session</a></p>
+          </li>
+        <% }) %>
+      </ul>
+    <% } %>
+
+    <p class="section-foot"><a class="btn btn--sm" href="/">Back to the front page</a></p>
+  </div>
+</section>

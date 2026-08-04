@@ -24,6 +24,9 @@
         <% } else { %>
           <a class="btn btn--primary" href="/drafts">Draft library</a>
           <a class="btn" href="/board">Discussion board</a>
+          <%# isHost — published by loadUser: this member is running a session
+              within 30 days. Used here only to offer the link. %>
+          <% if (isHost) { %><a class="btn" href="/host">You're hosting</a><% } %>
         <% } %>
       </div>
     </div>
@@ -50,7 +53,16 @@
     <div class="wrap">
       <p class="section-label">Next meeting</p>
 
-      <div class="meeting-grid">
+      <%
+        /* An off-site event is a one-off at somebody's home. Its address and
+           details are MEMBERS-ONLY: src/routes/public.js has already nulled
+           them for a logged-out visitor (meetings.publicSafe), so this template
+           can only render what it is allowed to. `offsite` also decides the
+           right-hand column — there is no R. House table to point at, so the
+           floor map is replaced rather than left empty. */
+        var offsite = !!meeting && meeting.kind === 'offsite';
+      %>
+      <div class="meeting-grid<%= offsite ? ' meeting-grid--offsite' : '' %>">
         <div class="card card--meeting">
           <% if (meeting) { %>
             <p class="eyebrow eyebrow--muted">
@@ -61,13 +73,27 @@
             </p>
             <p class="meeting-time"><%= dates.formatTime(meeting.starts_at) %></p>
             <% if (meeting.title) { %><h2 class="meeting-title"><%= meeting.title %></h2><% } %>
+            <% if (offsite) { %><p><span class="badge">Off-site event</span></p><% } %>
 
             <dl class="meeting-facts">
-              <dt>Where</dt>
-              <dd><%= site.venue %> · <%= site.venueAddress %></dd>
-              <% if (meeting.location_label) { %>
-                <dt>Our table</dt>
-                <dd><span class="badge badge--rhouse">Look for us</span> <%= meeting.location_label %></dd>
+              <% if (offsite) { %>
+                <dt>Where</dt>
+                <% if (meeting.address) { %>
+                  <dd><%= meeting.address %></dd>
+                <% } else { %>
+                  <dd class="muted">Not at <%= site.venue %> this time — sign in for the address.</dd>
+                <% } %>
+              <% } else { %>
+                <dt>Where</dt>
+                <dd><%= site.venue %> · <%= site.venueAddress %></dd>
+                <% if (meeting.location_label) { %>
+                  <dt>Our table</dt>
+                  <dd><span class="badge badge--rhouse">Look for us</span> <%= meeting.location_label %></dd>
+                <% } %>
+              <% } %>
+              <% if (meeting.host_name) { %>
+                <dt>Hosted by</dt>
+                <dd><%= meeting.host_name %></dd>
               <% } %>
             </dl>
 
@@ -88,13 +114,52 @@
           <% } %>
         </div>
 
-        <div class="map-panel">
-          <%- include('partials/floormap', {
-                markerX: meeting ? meeting.map_x : null,
-                markerY: meeting ? meeting.map_y : null,
-                interactive: false
-              }) %>
-        </div>
+        <% if (offsite) { %>
+          <div class="card event-panel">
+            <% if (currentUser) { %>
+              <p class="section-label">Event details</p>
+              <% if (meeting.body_html) { %>
+                <div class="prose"><%- meeting.body_html %></div>
+              <% } else { %>
+                <p class="empty">No extra details — just the address and the time.</p>
+              <% } %>
+
+              <% if (eventAttachments.length) { %>
+                <p class="eyebrow eyebrow--muted">Attachments</p>
+                <ul class="file-list">
+                  <% eventAttachments.forEach(function (f) { %>
+                    <li>
+                      <a href="/events/<%= f.meeting_id %>/files/<%= f.id %>" target="_blank" rel="noopener">
+                        <%= f.original_name || 'Attachment' %>
+                      </a>
+                      <span class="mono small muted"><%= Math.max(1, Math.round((f.size || 0) / 1024)) %> KB</span>
+                    </li>
+                  <% }) %>
+                </ul>
+              <% } %>
+            <% } else { %>
+              <p class="section-label">Members only</p>
+              <h3 class="event-teaser-title">Off-site event — sign in for the details.</h3>
+              <p class="measure">
+                This one isn't at <%= site.venue %>. The address, the directions
+                and anything attached to it are for members of the group, so
+                they stay behind the sign-in.
+              </p>
+              <p class="hero-actions">
+                <a class="btn btn--primary" href="/login">Sign in</a>
+                <a class="btn" href="/register">Join the board</a>
+              </p>
+            <% } %>
+          </div>
+        <% } else { %>
+          <div class="map-panel">
+            <%- include('partials/floormap', {
+                  markerX: meeting ? meeting.map_x : null,
+                  markerY: meeting ? meeting.map_y : null,
+                  interactive: false
+                }) %>
+          </div>
+        <% } %>
       </div>
 
       <% if (weekly.length) { %>
@@ -113,6 +178,22 @@
           </ul>
         </div>
       <% } %>
+    </div>
+  </section>
+
+  <section class="section" id="how-it-runs">
+    <div class="wrap">
+      <p class="section-label">How a session runs</p>
+      <div class="prose measure">
+        <p>
+          A session runs two hours: the first ten minutes are for settling in,
+          coffee and catching up, and then the writing starts.
+        </p>
+        <p>
+          From there it's twenty-minute sprints with ten-minute breaks between
+          them — write, stop, talk, go again — until the two hours are up.
+        </p>
+      </div>
     </div>
   </section>
 

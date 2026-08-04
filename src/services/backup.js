@@ -8,12 +8,14 @@
  *      DATA_DIR/uploads/tmp/ (a consistent copy even while the app is running —
  *      no need to stop the server or lock the WAL).
  *   2. Streams a zip to `res` containing that snapshot as `app.db` plus the
- *      whole `uploads/drafts/` tree (uploads/tmp is never included).
+ *      whole `uploads/drafts/` and `uploads/events/` trees (uploads/tmp is
+ *      never included).
  *   3. Cleans up the snapshot file afterward, including on client abort.
  *
  * The zip's top-level layout is exactly what a fresh /data volume expects:
  *   app.db
  *   uploads/drafts/<id>/...
+ *   uploads/events/<meeting id>/...
  * so "restore" is just "unzip into /data". See README.md.
  */
 
@@ -25,6 +27,7 @@ const archiver = require('archiver');
 const config = require('../config');
 const { db, setSetting } = require('../db');
 const { DRAFTS_ROOT } = require('./ingest/paths');
+const { EVENTS_ROOT } = require('./events/paths');
 
 const TMP_DIR = path.join(config.uploadsDir, 'tmp');
 
@@ -81,6 +84,11 @@ async function streamBackup(res) {
     archive.file(snapshotPath, { name: 'app.db' });
     if (fs.existsSync(DRAFTS_ROOT)) {
       archive.directory(DRAFTS_ROOT, 'uploads/drafts');
+    }
+    // Off-site event attachments (migration 004) live beside the drafts and are
+    // just as unrecoverable from the database alone.
+    if (fs.existsSync(EVENTS_ROOT)) {
+      archive.directory(EVENTS_ROOT, 'uploads/events');
     }
     archive.finalize().catch((err) => {
       cleanupOnce();

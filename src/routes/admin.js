@@ -1,8 +1,14 @@
 'use strict';
 
 const express = require('express');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const multer = require('multer');
+
 const { db, getSetting, setSetting } = require('../db');
-const { users, meetings, recurring, announcements } = require('../models');
+const { users, meetings, recurring, announcements, hosts, eventFiles } = require('../models');
+const attachments = require('../services/events/attachments');
+const { TMP_DIR } = require('../services/ingest/paths');
 const { requireLeader, requireArchitect } = require('../auth/middleware');
 const roles = require('../auth/roles');
 const { hashSecret } = require('../auth/passwords');
@@ -71,18 +77,33 @@ router.post('/settings/watermark', (req, res) => {
 
 /* --------------------------------------------------------------- meetings */
 
-/** Weekly rules decorated with what a leader needs to see: next date + skips. */
+/** How many dates ahead the "give this one to a host" picker offers. */
+const HOST_PICK_AHEAD = 6;
+
+/**
+ * Weekly rules decorated with what a leader needs to see: next date, skips, the
+ * dates a host can be handed, and who already has one.
+ */
 function rulesForList() {
   return recurring.list().map((rule) => {
     const occurrences = dates.nextOccurrences(rule.weekday, rule.time_hhmm, 8);
     const skipped = new Set(recurring.skipDates(rule.id));
     const next = occurrences.find((o) => !skipped.has(o.local_date)) || null;
+    const assigned = hosts.forRule(rule.id);
+    const assignedByDate = new Map(assigned.map((a) => [a.local_date, a]));
     return {
       ...rule,
       next,
       // Default the skip form to the next occurrence that is still on.
       skipDefault: next ? next.local_date : occurrences.length ? occurrences[0].local_date : '',
       skips: recurring.skips(rule.id),
+      // Host assignment is per-DATE, mirroring "skip a date": the same list of
+      // upcoming occurrences, minus the ones already called off.
+      hostDates: occurrences
+        .filter((o) => !skipped.has(o.local_date))
+        .slice(0, HOST_PICK_AHEAD)
+        .map((o) => ({ ...o, host: assignedByDate.get(o.local_date) || null })),
+      hosts: assigned,
     };
   });
 }
@@ -94,100 +115,292 @@ router.get('/meetings', (req, res) => {
     upcoming: meetings.upcoming(),
     past: meetings.past(10),
     rules: rulesForList(),
+    memberOptions: users.listActive(),
   });
 });
 
-router.get('/meetings/new', (req, res) => {
-  res.render('admin/meeting-form', {
-    title: 'New meeting',
-    bodyClass: 'page-admin',
-    pageJs: ['/js/map-picker.js'],
-    meeting: null,
-    values: { starts_at_local: '', title: '', notes: '', location_label: '', map_x: '', map_y: '' },
-    errors: [],
-  });
+/* ---- one-off meetings: R. House tables and off-site events ----------------
+ *
+ * One form covers both, because to a leader they are the same errand ("the
+ * group is meeting here, then"). `kind` swaps the second half of the form:
+ *   rhouse  → the floor map picker, as it has always been.
+ *   offsite → an address, markdown details, and up to five attachments — all
+ *             three MEMBERS-ONLY on the front page (see views/home.ejs and
+ *             meetings.publicSafe in src/models.js).
+ *
+ * MULTIPART + CSRF: attachments make this a multipart form, and checkCsrf runs
+ * before any body parser sees a multipart request — so, exactly like the draft
+ * upload, the page posts itself as an XHR carrying X-CSRF-Token and this route
+ * answers JSON (public/js/event-form.js). The non-XHR path still works and
+ * redirects, so the route survives the day the CSRF middleware learns to read
+ * multipart bodies.
+ */
+
+const KINDS = new Set(['rhouse', 'offsite']);
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, TMP_DIR),
+    filename: (req, file, cb) => {
+      const ext = path.extname(String(file.originalname || '')).toLowerCase().slice(0, 12);
+      cb(null, `${Date.now().toString(36)}-${crypto.randomBytes(8).toString('hex')}${ext}`);
+    },
+  }),
+  limits: {
+    fileSize: attachments.MAX_BYTES,
+    files: attachments.MAX_FILES,
+    fields: 24,
+    parts: attachments.MAX_FILES + 28,
+  },
 });
+
+function acceptAttachments(req, res, next) {
+  upload.array('attachments', attachments.MAX_FILES)(req, res, (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        req.uploadError = `Attachments are limited to ${attachments.MAX_BYTES / 1024 / 1024} MB each.`;
+      } else if (err.code === 'LIMIT_FILE_COUNT' || err.code === 'LIMIT_PART_COUNT') {
+        req.uploadError = `An event can carry up to ${attachments.MAX_FILES} attachments.`;
+      } else if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+        req.uploadError = 'That form had a file field we do not recognise.';
+      } else {
+        req.uploadError = 'The upload did not arrive intact. Please try again.';
+      }
+    }
+    next();
+  });
+}
+
+const wantsJson = (req) =>
+  req.xhr ||
+  String(req.get('x-requested-with') || '').toLowerCase() === 'xmlhttprequest' ||
+  String(req.get('accept') || '').includes('application/json');
+
+function renderMeetingForm(res, { meeting, values, errors, files = [], memberOptions, status = 200 }) {
+  return res.status(status).render('admin/meeting-form', {
+    title: meeting ? 'Edit meeting' : 'New meeting',
+    bodyClass: 'page-admin',
+    pageCss: ['/css/events.css'],
+    pageJs: ['/js/map-picker.js', '/js/event-form.js'],
+    meeting,
+    values,
+    files,
+    memberOptions,
+    limits: {
+      maxFiles: attachments.MAX_FILES,
+      maxMb: attachments.MAX_BYTES / 1024 / 1024,
+      formats: attachments.EXT_LIST,
+    },
+    errors,
+  });
+}
+
+/** Answer a rejected submit the way the caller asked for it. */
+function meetingFormFailed(req, res, ctx) {
+  attachments.discard(req.files);
+  if (wantsJson(req)) return res.status(400).json({ ok: false, errors: ctx.errors });
+  return renderMeetingForm(res, { ...ctx, status: 400 });
+}
+
+const EMPTY_MEETING = {
+  starts_at_local: '', title: '', notes: '', location_label: '', map_x: '', map_y: '',
+  kind: 'rhouse', address: '', body_md: '', host_user_id: '', is_cancelled: 0,
+};
+
+router.get('/meetings/new', (req, res) =>
+  renderMeetingForm(res, {
+    meeting: null,
+    values: { ...EMPTY_MEETING },
+    errors: [],
+    memberOptions: users.listActive(),
+  })
+);
 
 function readMeetingForm(body) {
+  const kind = KINDS.has(String(body.kind)) ? String(body.kind) : 'rhouse';
+  const offsite = kind === 'offsite';
   const values = {
     starts_at_local: String(body.starts_at_local || '').trim(),
     title: trim(body.title, 120) || '',
     notes: trim(body.notes, 2000) || '',
-    location_label: trim(body.location_label, 120) || '',
-    map_x: coord(body.map_x),
-    map_y: coord(body.map_y),
+    location_label: offsite ? '' : trim(body.location_label, 120) || '',
+    // An off-site event has no table on the R. House floor map — clearing the
+    // pin here is what makes the landing card drop the map entirely.
+    map_x: offsite ? null : coord(body.map_x),
+    map_y: offsite ? null : coord(body.map_y),
     is_cancelled: body.is_cancelled ? 1 : 0,
+    kind,
+    address: offsite ? trim(body.address, 200) || '' : '',
+    body_md: offsite ? String(body.body_md || '').trim().slice(0, 20000) : '',
+    host_user_id: String(body.host_user_id || '').trim(),
   };
+
   const errors = [];
   const starts_at = dates.localInputToUtcIso(values.starts_at_local);
   if (!starts_at) errors.push('Pick a date and time for the meeting.');
   if ((values.map_x === null) !== (values.map_y === null)) {
     errors.push('Click the floor map to place the marker (or clear it entirely).');
   }
-  return { values, starts_at, errors };
+  if (offsite) {
+    if (!values.title) errors.push('Give the off-site event a title — it is all the public page shows.');
+    if (!values.address) errors.push('Add the address. Members see it once they sign in; nobody else does.');
+  }
+
+  // "none" and an unknown id both mean nobody. A booted account is not offered.
+  let host_user_id = null;
+  if (values.host_user_id) {
+    const candidate = users.byId(Number(values.host_user_id));
+    if (candidate && candidate.is_active) host_user_id = candidate.id;
+    else errors.push('That host is not an active member — pick somebody else, or "Nobody yet".');
+  }
+
+  const body_html = offsite && values.body_md ? mdToHtml(values.body_md) : null;
+  if (offsite && values.body_md && !toPlainText(body_html)) {
+    errors.push('Nothing survived the formatting filter in the details — try plain text or simple markdown.');
+  }
+
+  return { values, starts_at, host_user_id, body_html, errors };
 }
 
-router.post('/meetings', (req, res) => {
-  const { values, starts_at, errors } = readMeetingForm(req.body);
-  if (errors.length) {
-    return res.status(400).render('admin/meeting-form', {
-      title: 'New meeting',
-      bodyClass: 'page-admin',
-      pageJs: ['/js/map-picker.js'],
-      meeting: null,
-      values,
-      errors,
-    });
+/**
+ * Validates and stores this submit's attachments. Returns { rows, errors }:
+ * rows are ready for eventFiles.create, and are only written by the caller once
+ * everything else about the meeting has succeeded.
+ */
+function takeAttachments(meetingId, files, existingCount, kind) {
+  const list = files || [];
+  const errors = [];
+  if (!list.length) return { rows: [], errors };
+  if (kind !== 'offsite') {
+    // Files were attached and then the leader flipped back to R. House.
+    return { rows: [], errors: ['Attachments belong to off-site events — switch the kind back, or remove them.'] };
   }
-  meetings.create({
-    starts_at,
-    title: values.title || null,
-    notes: values.notes || null,
-    location_label: values.location_label || null,
-    map_x: values.map_x,
-    map_y: values.map_y,
-    is_cancelled: values.is_cancelled,
-    created_by: req.user.id,
-  });
+  if (existingCount + list.length > attachments.MAX_FILES) {
+    return {
+      rows: [],
+      errors: [`An event can carry up to ${attachments.MAX_FILES} attachments (this one already has ${existingCount}).`],
+    };
+  }
+
+  const rows = [];
+  for (const file of list) {
+    const checked = attachments.validate(file);
+    if (checked.error) {
+      errors.push(`“${toPlainText(file.originalname, 80)}” ${checked.error}`);
+      continue;
+    }
+    rows.push({ file, checked });
+  }
+  if (errors.length) return { rows: [], errors };
+
+  return { rows: rows.map(({ file, checked }) => attachments.store(meetingId, file, checked)), errors };
+}
+
+/** Ids the edit form ticked for removal, as numbers. */
+function removalIds(body) {
+  const raw = body.remove_attachment;
+  const list = Array.isArray(raw) ? raw : raw === undefined ? [] : [raw];
+  return list.map(Number).filter((n) => Number.isInteger(n) && n > 0);
+}
+
+router.post('/meetings', acceptAttachments, (req, res) => {
+  const memberOptions = users.listActive();
+  const { values, starts_at, host_user_id, body_html, errors } = readMeetingForm(req.body || {});
+  if (req.uploadError) errors.unshift(req.uploadError);
+  if (errors.length) {
+    return meetingFormFailed(req, res, { meeting: null, values, errors, memberOptions });
+  }
+
+  const id = Number(
+    meetings.create({
+      starts_at,
+      title: values.title || null,
+      notes: values.notes || null,
+      location_label: values.location_label || null,
+      map_x: values.map_x,
+      map_y: values.map_y,
+      is_cancelled: values.is_cancelled,
+      kind: values.kind,
+      address: values.address || null,
+      body_html,
+      body_md: values.body_md || null,
+      host_user_id,
+      created_by: req.user.id,
+    }).lastInsertRowid
+  );
+
+  const stored = takeAttachments(id, req.files, 0, values.kind);
+  if (stored.errors.length) {
+    // The meeting exists and is correct; only the files were refused. Say so
+    // rather than throwing away everything the leader typed.
+    for (const row of stored.rows) attachments.unlinkStored(id, row.stored_name);
+    attachments.discard(req.files);
+    flash(res, 'error', `Meeting saved, but the attachments were not: ${stored.errors.join(' ')}`);
+    const location = `/admin/meetings/${id}/edit`;
+    if (wantsJson(req)) return res.status(201).json({ ok: true, id, redirect: location });
+    return res.redirect(location);
+  }
+  for (const row of stored.rows) eventFiles.create(row);
+
   flash(res, 'ok', 'Meeting saved. The landing page is updated.');
+  if (wantsJson(req)) return res.status(201).json({ ok: true, id, redirect: '/admin/meetings' });
   return res.redirect('/admin/meetings');
 });
+
+function meetingValues(meeting) {
+  return {
+    starts_at_local: dates.utcIsoToLocalInput(meeting.starts_at),
+    title: meeting.title || '',
+    notes: meeting.notes || '',
+    location_label: meeting.location_label || '',
+    map_x: meeting.map_x,
+    map_y: meeting.map_y,
+    is_cancelled: meeting.is_cancelled,
+    kind: meeting.kind || 'rhouse',
+    address: meeting.address || '',
+    body_md: meeting.body_md || '',
+    host_user_id: meeting.host_user_id == null ? '' : String(meeting.host_user_id),
+  };
+}
 
 router.get('/meetings/:id/edit', (req, res, next) => {
   const meeting = meetings.byId(req.params.id);
   if (!meeting) return next();
-  return res.render('admin/meeting-form', {
-    title: 'Edit meeting',
-    bodyClass: 'page-admin',
-    pageJs: ['/js/map-picker.js'],
+  return renderMeetingForm(res, {
     meeting,
-    values: {
-      starts_at_local: dates.utcIsoToLocalInput(meeting.starts_at),
-      title: meeting.title || '',
-      notes: meeting.notes || '',
-      location_label: meeting.location_label || '',
-      map_x: meeting.map_x,
-      map_y: meeting.map_y,
-      is_cancelled: meeting.is_cancelled,
-    },
+    values: meetingValues(meeting),
     errors: [],
+    files: eventFiles.forMeeting(meeting.id),
+    memberOptions: users.listActive(),
   });
 });
 
-router.post('/meetings/:id', (req, res, next) => {
+router.post('/meetings/:id', acceptAttachments, (req, res, next) => {
   const meeting = meetings.byId(req.params.id);
   if (!meeting) return next();
-  const { values, starts_at, errors } = readMeetingForm(req.body);
+
+  const memberOptions = users.listActive();
+  const existing = eventFiles.forMeeting(meeting.id);
+  const { values, starts_at, host_user_id, body_html, errors } = readMeetingForm(req.body || {});
+  if (req.uploadError) errors.unshift(req.uploadError);
   if (errors.length) {
-    return res.status(400).render('admin/meeting-form', {
-      title: 'Edit meeting',
-      bodyClass: 'page-admin',
-      pageJs: ['/js/map-picker.js'],
+    return meetingFormFailed(req, res, { meeting, values, errors, files: existing, memberOptions });
+  }
+
+  const removing = new Set(removalIds(req.body || {}));
+  const keeping = existing.filter((f) => !removing.has(f.id));
+  const stored = takeAttachments(meeting.id, req.files, keeping.length, values.kind);
+  if (stored.errors.length) {
+    for (const row of stored.rows) attachments.unlinkStored(meeting.id, row.stored_name);
+    return meetingFormFailed(req, res, {
       meeting,
       values,
-      errors,
+      errors: stored.errors,
+      files: existing,
+      memberOptions,
     });
   }
+
   meetings.update({
     id: meeting.id,
     starts_at,
@@ -197,8 +410,22 @@ router.post('/meetings/:id', (req, res, next) => {
     map_x: values.map_x,
     map_y: values.map_y,
     is_cancelled: values.is_cancelled,
+    kind: values.kind,
+    address: values.address || null,
+    body_html,
+    body_md: values.body_md || null,
+    host_user_id,
   });
+
+  for (const file of existing) {
+    if (!removing.has(file.id)) continue;
+    eventFiles.remove(file.id, meeting.id);
+    attachments.unlinkStored(meeting.id, file.stored_name);
+  }
+  for (const row of stored.rows) eventFiles.create(row);
+
   flash(res, 'ok', 'Meeting updated.');
+  if (wantsJson(req)) return res.json({ ok: true, id: meeting.id, redirect: '/admin/meetings' });
   return res.redirect('/admin/meetings');
 });
 
@@ -377,6 +604,54 @@ router.post('/recurring/:id/skip', (req, res, next) => {
 router.post('/recurring/skips/:skipId/delete', (req, res) => {
   recurring.removeSkip(req.params.skipId);
   flash(res, 'info', 'That week is back on.');
+  return res.redirect('/admin/meetings#weekly');
+});
+
+/* Handing one session to a host. Per DATE, exactly like skipping a week — a
+   host runs one Saturday, not "Saturdays". */
+
+router.post('/recurring/:id/host', (req, res, next) => {
+  const rule = recurring.byId(req.params.id);
+  if (!rule) return next();
+
+  const localDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body.local_date || '').trim())
+    ? String(req.body.local_date).trim()
+    : null;
+  if (!localDate || dates.localDayOfWeek(localDate) !== rule.weekday) {
+    flash(res, 'error', `Pick the date of the ${dates.weekdayName(rule.weekday)} you want to hand over.`);
+    return res.redirect('/admin/meetings#weekly');
+  }
+
+  const raw = String(req.body.user_id || '').trim();
+  if (!raw || raw === 'none') {
+    /* Unassigning also clears that date's overrides — see the note on
+       hosts.unassign in src/models.js. With nobody running the session, the
+       occurrence should read exactly like the rule again. */
+    const previous = hosts.forOccurrence(rule.id, localDate);
+    hosts.unassign(rule.id, localDate);
+    flash(
+      res,
+      'info',
+      previous
+        ? `${previous.display_name} is no longer hosting ${dates.formatDate(`${localDate}T12:00:00Z`)}. Any changes they made to that session are undone.`
+        : 'Nobody was hosting that date.'
+    );
+    return res.redirect('/admin/meetings#weekly');
+  }
+
+  const target = users.byId(Number(raw));
+  if (!target || !target.is_active) {
+    flash(res, 'error', 'Pick an active member to host that session.');
+    return res.redirect('/admin/meetings#weekly');
+  }
+
+  hosts.assign(rule.id, localDate, target.id, req.user.id);
+  flash(
+    res,
+    'ok',
+    `${target.display_name} is hosting ${dates.formatDate(`${localDate}T12:00:00Z`)}. ` +
+      'They can set the time, the table, the pin and a note for that one session at /host.'
+  );
   return res.redirect('/admin/meetings#weekly');
 });
 

@@ -98,6 +98,7 @@ See `.env.example` for a copyable starting point.
   announcements, board posts, drafts metadata, comments — everything).
 - `uploads/drafts/` — every uploaded draft's original file and converted
   pages, one folder per draft.
+- `uploads/events/` — attachments on off-site events, one folder per meeting.
 
 Do this monthly at minimum; the admin dashboard shows how long it's been
 since the last backup and turns amber past 30 days or if one has never been
@@ -110,8 +111,8 @@ on a fresh volume (new host, disaster recovery, migrating providers):
 1. Unzip the backup file.
 2. Copy the extracted `app.db` to the root of the new `/data` volume, so it
    sits at `/data/app.db`.
-3. Copy the extracted `uploads/drafts/` folder into the new volume at
-   `/data/uploads/drafts/`.
+3. Copy the extracted `uploads/` folder into the new volume, so the trees land
+   at `/data/uploads/drafts/` and `/data/uploads/events/`.
 4. Start (or restart) the app pointed at that volume as `DATA_DIR`. It will
    find the existing database, run any migrations newer than the backup, and
    serve exactly the state that was backed up.

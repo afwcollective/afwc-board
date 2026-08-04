@@ -97,6 +97,8 @@ app.use('/', require('./routes/account'));
 app.use('/admin', require('./routes/admin'));
 app.use('/board', require('./routes/board'));
 app.use('/drafts', require('./routes/drafts'));
+app.use('/events', require('./routes/events'));
+app.use('/host', require('./routes/host'));
 app.use('/timer', require('./routes/timer'));
 app.use('/', require('./routes/reader'));
 

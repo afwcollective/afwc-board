@@ -1,0 +1,100 @@
+/* ============================================================
+   events.css — off-site events and session hosts.
+
+   Loaded on the front page, the admin meeting form / meetings list, and the
+   /host pages. Kept out of site.css for the same reason admin.css is: this
+   file only adds new components and modifiers, never rewrites a shared rule,
+   so two people can work on the site at once without stepping on each other.
+
+   Everything here is mobile-first and uses the existing tokens — no new
+   colours, no new type scale. The only red on the site is still R. House red.
+   ============================================================ */
+
+/* ---------------------------------------------------------- shared bits */
+
+/* The one label that has to be unmissable: this is not for the public. */
+.members-only-tag {
+  display: inline-block;
+  font-size: 10px; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--blue-2); background: var(--blue-3);
+  border: 1px solid var(--blue);
+  padding: 1px 6px; margin-left: 6px; vertical-align: 1px;
+}
+
+.file-list { list-style: none; margin: var(--s3) 0 0; padding: 0; font-size: 15px; }
+.file-list li {
+  display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap;
+  padding: 8px 0; border-bottom: 1px solid var(--hair-2);
+}
+.file-list li:last-child { border-bottom: 0; }
+.file-list a { word-break: break-word; min-width: 0; }
+
+.check--inline { display: inline-flex; margin-left: auto; }
+.check--inline > span { font-size: 10.5px; }
+
+/* ---------------------------------------------------------- meeting form */
+
+/* Kind toggle — the first decision on the form, so it reads as a block of its
+   own above the two columns rather than as one more field among many. */
+.field--kind {
+  border: 1px solid var(--hair);
+  border-left: 3px solid var(--blue);
+  background: var(--card);
+  padding: var(--s4);
+  margin: 0 0 var(--s5);
+}
+.field--kind legend {
+  font-family: var(--mono); font-size: 11px; letter-spacing: .18em;
+  text-transform: uppercase; color: var(--ink-2); padding: 0 6px 0 0;
+}
+.field--kind .check { align-items: flex-start; margin-bottom: var(--s2); }
+.field--kind .check > span {
+  font-family: var(--sans); font-size: 15px; letter-spacing: 0;
+  text-transform: none; color: var(--ink-2); line-height: 1.45;
+}
+.field--kind .check input { margin-top: 3px; }
+
+/* The right-hand column of the meeting form: the map for an R. House meeting,
+   the attachment panel for an off-site event. One column, two tenants. */
+.meeting-form-side { min-width: 0; }
+.event-files { min-width: 0; }
+.event-files .section-label { margin-top: 0; }
+.event-files input[type="file"] { width: 100%; font-size: 14px; }
+
+.upload-progress { margin: var(--s4) 0 0; display: flex; align-items: center; gap: var(--s3); }
+.upload-bar {
+  flex: 1 1 auto; height: 6px; background: var(--tint);
+  border: 1px solid var(--hair-2); min-width: 80px;
+}
+.upload-bar-fill { display: block; height: 100%; width: 0; background: var(--blue); }
+
+/* ---------------------------------------------------------- landing card */
+
+/* An off-site event has no floor map, so the second column carries the details
+   (members) or the sign-in teaser (everyone else) at the same visual weight. */
+.event-panel { min-width: 0; border-top-color: var(--blue); }
+.event-panel .section-label { margin-top: 0; }
+.event-teaser-title { margin: 0 0 var(--s3); font-size: 21px; }
+.event-panel .hero-actions { margin-top: var(--s4); }
+
+@media (min-width: 900px) {
+  .meeting-grid--offsite { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
+
+/* ---------------------------------------------------------- /host */
+
+.host-list { list-style: none; margin: var(--s5) 0 0; padding: 0; }
+.host-card { min-width: 0; }
+.host-card + .host-card { margin-top: var(--s4); }
+.host-card-title { margin: 0 0 var(--s2); font-size: 24px; }
+.host-card-when {
+  font-family: var(--serif); font-size: 19px; color: var(--ink-2); margin: 0 0 var(--s3);
+}
+.host-card-where { margin: 0 0 var(--s3); }
+.host-card-where .badge { margin-right: 6px; }
+.host-card-note {
+  margin: 0 0 var(--s3); padding-left: var(--s3);
+  border-left: 2px solid var(--hair); color: var(--ink-3); font-size: 15px;
+}
+.host-card-flags { display: flex; gap: var(--s2); flex-wrap: wrap; margin: 0 0 var(--s4); }
+.host-card-flags:empty { display: none; }

@@ -13,6 +13,8 @@
       <li><a href="#joining">How members join</a></li>
       <li><a href="#weekly">The weekly schedule</a></li>
       <li><a href="#meetings">One-off meetings and the map pin</a></li>
+      <li><a href="#offsite">Off-site events</a></li>
+      <li><a href="#hosts">Session hosts</a></li>
       <li><a href="#announcements">Announcements</a></li>
       <li><a href="#members">Booting and reactivating members</a></li>
       <li><a href="#reset-codes">Password reset codes</a></li>
@@ -36,12 +38,13 @@
         anything else.
       </p>
 
-      <h3>Session host <span class="badge">Coming soon</span></h3>
+      <h3>Session host</h3>
       <p>
-        A member who is running one particular meeting — the person who opens
-        the sprint timer and says where the group is sitting that day. It is a
-        per-meeting job, not a standing rank, and it isn't built yet; when it
-        lands it will hang off a single date rather than off someone's account.
+        A member who is running one particular meeting — the person who says
+        where the group is sitting that day. It is a per-meeting job, not a
+        standing rank: it hangs off a single date, not off someone's account,
+        and it ends by itself when that date passes. See
+        <a href="#hosts">Session hosts</a> for what they can and can't change.
       </p>
 
       <h3>Leader</h3>
@@ -185,6 +188,92 @@
       </p>
     </article>
 
+    <article class="handbook-section" id="offsite">
+      <h2>Off-site events</h2>
+      <p>
+        Sometimes the group meets somewhere that isn't R. House — a themed
+        night at somebody's house, a reading at another venue. On the
+        <a href="/admin/meetings/new">meeting form</a>, the first choice is
+        <strong>R. House</strong> or <strong>Off-site event</strong>. Pick
+        off-site and the floor map is replaced by three things: an
+        <strong>address</strong>, a <strong>details</strong> box (plain text or
+        simple markdown, same as an announcement), and up to five
+        <strong>attachments</strong> — a flyer, a photo of the block, a parking
+        map. JPG, PNG, WebP or PDF, 10 MB each.
+      </p>
+      <p>
+        <strong>The privacy rule — this is the important part.</strong> An
+        off-site event's <em>address, details and attachments are shown to
+        signed-in members only</em>. Nobody else. A visitor who is not signed in
+        sees the title, the date and the time, and a line saying "Off-site
+        event — sign in for the details." Nothing more reaches them: the
+        address isn't hidden with styling, it is never sent to their browser at
+        all, and the attachment links don't exist for them. Somebody's home
+        address never sits on a public page.
+      </p>
+      <p>
+        Two things to keep in mind. The <strong>title</strong> is public, so
+        call it "Worldbuilding night," not "Party at 14 Elm St." And the
+        <strong>Notes</strong> field is the ordinary public one that every
+        meeting has — the private text goes in <strong>Details</strong>, which
+        is marked <span class="mono">members only</span> right on the form.
+      </p>
+      <p>
+        Editing an event again later lets you tick <strong>Remove</strong> next
+        to any attachment and add new ones. Cancelling an event pulls it off the
+        front page and its files stop opening for anyone, members included.
+      </p>
+    </article>
+
+    <article class="handbook-section" id="hosts">
+      <h2>Session hosts</h2>
+      <p>
+        A host is a member you hand <em>one</em> session to. They're the person
+        on the floor that day, so they're the person who should be able to say
+        "we're on the patio" without texting a leader. Nothing about their
+        account changes and nothing carries over to the next week.
+      </p>
+      <p>
+        <strong>Handing one over.</strong> For the weekly schedule, each rule on
+        <a href="/admin/meetings#weekly">Meetings</a> has a "Give one session to
+        a host" box: pick a date from the next few, pick the member, click
+        <strong>Assign host</strong>. It works exactly like skipping a week —
+        per date, never "every Saturday forever." For a one-off meeting, the
+        <strong>Host</strong> dropdown is on the meeting form itself.
+      </p>
+      <p>
+        <strong>What a host can do.</strong> They get a page at
+        <span class="mono">/host</span> listing what they're running in the next
+        30 days. For each one they can set the <em>start time</em>, <em>where in
+        the room</em> the group is sitting, the <em>map pin</em>, and a
+        <em>note for the day</em> ("we're on the patio today"). That's the whole
+        list, and it applies to that date only — the weekly rule is untouched,
+        so the following week goes back to normal on its own.
+      </p>
+      <p>
+        <strong>What a host cannot do.</strong> Everything else: the title, the
+        kind of event, an off-site address, cancelling, other dates, other
+        people's sessions, and anything at all in this admin console. The site
+        refuses those requests rather than hiding the buttons, so there is
+        nothing to be careless with. A session in the past goes read-only.
+      </p>
+      <p>
+        <strong>Taking it back.</strong> Set the host to <strong>Nobody</strong>
+        (or click Remove next to the assignment). Removing a host from a weekly
+        date also <em>undoes the changes they made to that date</em> — the pin,
+        the label, the time and the note all go back to what the weekly rule
+        says, because those changes only existed for the person running it.
+        Handing the same date to a <em>different</em> member instead keeps the
+        arrangements, so the new host starts from what's already been set up. On
+        a one-off meeting there is nothing to undo: a host edits the meeting's
+        own fields, which were always yours to edit too.
+      </p>
+      <p>
+        The host's first name shows on the front page — "Hosted by Dana" —
+        publicly, so people know who to look for. Only the name.
+      </p>
+    </article>
+
     <article class="handbook-section" id="announcements">
       <h2>Announcements</h2>
       <p>
@@ -279,6 +368,10 @@
         <li>
           <span class="mono">uploads/drafts/</span> — every uploaded draft file
           (the originals, not just the converted pages), organized by draft.
+        </li>
+        <li>
+          <span class="mono">uploads/events/</span> — anything attached to an
+          off-site event: flyers, maps, menus.
         </li>
       </ul>
       <p>

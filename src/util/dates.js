@@ -227,6 +227,7 @@ module.exports = {
   weekdayNames,
   localDateKey,
   localDayOfWeek,
+  addLocalDays,
   formatHhmm,
   normalizeHhmm,
   nextOccurrences,
