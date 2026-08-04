@@ -1,8 +1,14 @@
 'use strict';
 
 const express = require('express');
-const { meetings, recurring, announcements, eventFiles } = require('../models');
+const { meetings, recurring, announcements, eventFiles, about } = require('../models');
 const { noUsersYet } = require('../auth/middleware');
+const { mdToHtml, toPlainText } = require('../util/sanitize');
+
+/** How many of the most recent unpinned announcements the landing page shows. */
+const RECENT_ANNOUNCEMENT_COUNT = 6;
+/** How many special events the landing page lists before it would need paging. */
+const SPECIAL_EVENT_COUNT = 20;
 
 const router = express.Router();
 
@@ -31,6 +37,30 @@ router.get('/', (req, res) => {
       ? eventFiles.forMeeting(meeting.id)
       : [];
 
+  /*
+   * News & announcements: pinned ones are the newsletter — featured in full,
+   * markdown body and all. Unpinned ones are a compact recent list (no
+   * pagination yet, so just the most recent few). `announcements.list` already
+   * sorts pinned-first, newest-first, so one query covers both halves.
+   */
+  const allAnnouncements = firstRun ? [] : announcements.list(30);
+  const pinnedAnnouncements = allAnnouncements.filter((a) => a.is_pinned);
+  const recentAnnouncements = allAnnouncements
+    .filter((a) => !a.is_pinned)
+    .slice(0, RECENT_ANNOUNCEMENT_COUNT)
+    .map((a) => ({ ...a, snippet: toPlainText(a.body_html, 140) }));
+
+  /*
+   * Special events: every future one-off meeting except whichever one is
+   * already the next-session card above (nothing should appear twice on the
+   * page). Same privacy rule as the next-session card — meetings.publicSafe
+   * nulls the members-only columns of an off-site row before a logged-out
+   * visitor ever sees it; this reuses that helper rather than re-deriving it.
+   */
+  const excludeId = unified && !unified.is_recurring ? unified.id : null;
+  const specialRaw = firstRun ? [] : meetings.upcomingSpecial(SPECIAL_EVENT_COUNT, excludeId);
+  const specialEvents = signedIn ? specialRaw : specialRaw.map(meetings.publicSafe);
+
   res.render('home', {
     title: null, // layout falls back to the site name
     bodyClass: 'page-home',
@@ -39,7 +69,10 @@ router.get('/', (req, res) => {
     meeting,
     eventAttachments,
     weekly: firstRun ? [] : recurring.listActive(),
-    announcements: firstRun ? [] : announcements.list(10),
+    aboutHtml: firstRun ? '' : mdToHtml(about.getMd()),
+    pinnedAnnouncements,
+    recentAnnouncements,
+    specialEvents,
     pageJs: [],
   });
 });

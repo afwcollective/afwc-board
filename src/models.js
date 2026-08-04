@@ -6,7 +6,7 @@
  * better-sqlite3; there is no ORM and there never will be.
  */
 
-const { db } = require('./db');
+const { db, getSetting, setSetting } = require('./db');
 const dates = require('./util/dates');
 const roles = require('./auth/roles');
 
@@ -178,6 +178,29 @@ const meetings = {
           ORDER BY m.starts_at ASC LIMIT ?`
       )
       .all(new Date().toISOString(), limit),
+
+  /**
+   * The landing page's "special events" list: every future, non-cancelled
+   * one-off meeting (R. House or off-site) EXCEPT `excludeId` — the meeting
+   * already shown as the next-session card, so nothing appears twice on the
+   * page. Weekly sessions never appear here; they are the staples, not a
+   * special event, and live in `recurring`.
+   *
+   * PRIVACY: this returns raw rows, same as `upcoming`/`next`. A caller
+   * rendering to a logged-out visitor must still map each row through
+   * `meetings.publicSafe` before it reaches a template — this helper does not
+   * do that itself, so it stays a plain read like its siblings.
+   */
+  upcomingSpecial: (limit = 20, excludeId = null) =>
+    db
+      .prepare(
+        `${MEETING_SELECT}
+          WHERE m.deleted_at IS NULL AND m.is_cancelled = 0 AND m.starts_at >= @now
+            AND (@excludeId IS NULL OR m.id != @excludeId)
+          ORDER BY m.starts_at ASC LIMIT @limit`
+      )
+      .all({ now: new Date().toISOString(), excludeId: excludeId || null, limit }),
+
   past: (limit = 20) =>
     db
       .prepare(
@@ -647,4 +670,37 @@ const announcements = {
       .run(byUserId, id),
 };
 
-module.exports = { users, meetings, recurring, announcements, hosts, eventFiles };
+/* ---------------- about (front-page "The Collective" copy) ---------------- *
+ *
+ * One markdown blob in the settings key/value table (001 already has the
+ * table; this needed no migration). `getMd` bootstraps the default the FIRST
+ * time anything asks for it — landing page or /admin/about, whichever loads
+ * first after a fresh install — and is otherwise a plain read. Idempotent by
+ * construction: it only ever writes when the key is missing, so a leader's
+ * saved copy is never clobbered by a later boot or request.
+ */
+
+const ABOUT_KEY = 'about_md';
+
+const ABOUT_DEFAULT_MD = `The Agile Fiction Writers Collective is a Baltimore fiction-writers' group that
+meets at R. House in Remington for timed writing sprints — write for a stretch,
+stop, talk about it, go again. All genres and formats are welcome: novels,
+short stories, screenplays, even graphic novels. Bring a laptop, a notebook,
+whatever gets words down.
+
+We grew out of a Meetup group and kept the informal, drop-in spirit: there's
+no submission process and no obligation to share what you wrote. New writers
+are welcome any week — just show up.`;
+
+const about = {
+  /** The current markdown, seeding the default on first read. */
+  getMd: () => {
+    const existing = getSetting(ABOUT_KEY);
+    if (existing !== null) return existing;
+    setSetting(ABOUT_KEY, ABOUT_DEFAULT_MD);
+    return ABOUT_DEFAULT_MD;
+  },
+  setMd: (md) => setSetting(ABOUT_KEY, md),
+};
+
+module.exports = { users, meetings, recurring, announcements, hosts, eventFiles, about };

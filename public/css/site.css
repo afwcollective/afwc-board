@@ -693,3 +693,41 @@ p:last-child { margin-bottom: 0; }
 .transfer-card h2 { margin: var(--s2) 0 var(--s3); }
 .transfer-card .form { margin-top: var(--s5); }
 .transfer-card select { width: 100%; }
+
+/* ============================================================
+   FRONT PAGE EXPANSION — about ("The Collective"), richer news
+   (pinned announcements featured, unpinned ones a compact recent
+   list) and the upcoming special-events list. No new components:
+   everything below reuses .card / .section-label / .badge / .prose
+   / .ann-* from above, just in a couple of new arrangements.
+   ============================================================ */
+
+/* Staples strip gained a footnote line under the list — same muted
+   register as everything else down there, not a second eyebrow. */
+.weekly-strip-note { margin: var(--s2) 0 0; }
+
+@media (min-width: 620px) {
+  /* The note sits under the list column, not the "The staples" label. */
+  .weekly-strip-note { grid-column: 2; }
+}
+
+/* News: the label between a featured pinned card and the compact list. */
+.ann-recent-label {
+  margin: var(--s5) 0 var(--s3);
+  letter-spacing: .18em; text-transform: uppercase;
+}
+.ann-list--featured + .ann-recent-label { margin-top: var(--s6); }
+
+/* Compact recent announcements — a hairline list, not a stack of cards, so
+   six of them read as a footnote to the featured ones above rather than
+   competing with them. */
+.ann-compact-list { list-style: none; margin: 0; padding: 0; }
+.ann-compact-item { padding: var(--s3) 0; border-bottom: 1px solid var(--hair-2); }
+.ann-compact-item:last-child { border-bottom: 0; }
+.ann-compact-title { font-size: 17px; margin: 0 0 4px; }
+
+/* Special events — same compact-card idea as an announcement, sized for a
+   date, a kind badge and a line or two of where/who, not a full body. */
+.special-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s4); }
+.special-list .card + .card { margin-top: 0; }
+.special-card p:last-child { margin-bottom: 0; }

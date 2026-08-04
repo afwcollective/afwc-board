@@ -6,7 +6,7 @@ const crypto = require('node:crypto');
 const multer = require('multer');
 
 const { db, getSetting, setSetting } = require('../db');
-const { users, meetings, recurring, announcements, hosts, eventFiles } = require('../models');
+const { users, meetings, recurring, announcements, hosts, eventFiles, about } = require('../models');
 const attachments = require('../services/events/attachments');
 const { TMP_DIR } = require('../services/ingest/paths');
 const { requireLeader, requireArchitect } = require('../auth/middleware');
@@ -721,6 +721,57 @@ router.post('/announcements/:id/delete', (req, res, next) => {
   announcements.softDelete(a.id, req.user.id);
   flash(res, 'info', 'Announcement removed.');
   return res.redirect('/admin/announcements');
+});
+
+/* --------------------------------------------------------------- about */
+
+/*
+ * The front page's "The Collective" intro — one markdown blob, stored in the
+ * settings table (src/models.js's `about` helper, seeded on first read; see
+ * that file for why this needed no migration). Same shape as announcements:
+ * a form, a length cap, and a check that something survived the sanitizer.
+ * A read-only preview underneath shows the leader what the front page will
+ * actually render, since markdown-to-HTML has a couple of surprises
+ * (unclosed emphasis, stray blank lines) worth catching before saving.
+ */
+
+const ABOUT_MAX_CHARS = 6000;
+
+router.get('/about', (req, res) => {
+  const body_md = about.getMd();
+  res.render('admin/about', {
+    title: 'About the group',
+    bodyClass: 'page-admin',
+    values: { body_md },
+    previewHtml: mdToHtml(body_md),
+    errors: [],
+  });
+});
+
+router.post('/about', (req, res) => {
+  const body_md = String(req.body.body_md || '').trim();
+  const errors = [];
+  if (!body_md) errors.push('The about text can’t be empty — write something for new visitors to read.');
+  if (body_md.length > ABOUT_MAX_CHARS) errors.push(`That's too long — keep it under ${ABOUT_MAX_CHARS} characters.`);
+
+  const body_html = body_md ? mdToHtml(body_md) : '';
+  if (!errors.length && !toPlainText(body_html)) {
+    errors.push('Nothing survived the formatting filter — try plain text or simple markdown.');
+  }
+
+  if (errors.length) {
+    return res.status(400).render('admin/about', {
+      title: 'About the group',
+      bodyClass: 'page-admin',
+      values: { body_md },
+      previewHtml: body_html,
+      errors,
+    });
+  }
+
+  about.setMd(body_md);
+  flash(res, 'ok', 'About text updated. The front page reflects it now.');
+  return res.redirect('/admin/about');
 });
 
 /* --------------------------------------------------------------- passcode */

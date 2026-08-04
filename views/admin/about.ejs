@@ -1,0 +1,35 @@
+<section class="section">
+  <div class="wrap">
+    <p class="eyebrow">Leaders only</p>
+    <h1>About the group</h1>
+    <p class="lede measure">
+      This is the intro paragraph block on the public front page — "The
+      Collective" section, right after "How a session runs." Markdown works:
+      <span class="mono small">**bold**</span>, <span class="mono small">_italic_</span>,
+      <span class="mono small">- lists</span>, <span class="mono small">[links](https://…)</span>.
+      Blank line between paragraphs.
+    </p>
+
+    <%- include('../partials/form-errors', { errors: errors }) %>
+
+    <form method="post" action="/admin/about" class="form card card--form">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+      <div class="field">
+        <label for="body_md">Body</label>
+        <textarea id="body_md" name="body_md" rows="12" required maxlength="6000"><%= values.body_md %></textarea>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary">Save</button>
+        <a class="btn btn--sm" href="/admin">Back to admin</a>
+        <a class="btn btn--sm" href="/#about" target="_blank" rel="noopener">View on the front page</a>
+      </div>
+    </form>
+
+    <p class="section-label">Preview</p>
+    <div class="card">
+      <div class="prose measure"><%- previewHtml %></div>
+    </div>
+  </div>
+</section>

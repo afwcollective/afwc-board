@@ -164,18 +164,25 @@
 
       <% if (weekly.length) { %>
         <div class="weekly-strip">
-          <p class="weekly-strip-label">Weekly</p>
+          <p class="weekly-strip-label">The staples</p>
           <ul class="weekly-list">
             <% weekly.forEach(function (r) { %>
               <li class="weekly-item">
                 Every <%= dates.weekdayName(r.weekday) %>
                 <span class="weekly-sep">·</span> <%= dates.formatHhmm(r.time_hhmm) %>
+                <% if (r.title) { %>
+                  <span class="weekly-sep">·</span> <span class="weekly-where"><%= r.title %></span>
+                <% } %>
                 <% if (r.location_label) { %>
                   <span class="weekly-sep">·</span> <span class="weekly-where"><%= r.location_label %></span>
                 <% } %>
               </li>
             <% }) %>
           </ul>
+          <p class="weekly-strip-note small muted">
+            These run every week, on the calendar for good — everything else on
+            this page is the exception, not the rule.
+          </p>
         </div>
       <% } %>
     </div>
@@ -197,26 +204,52 @@
     </div>
   </section>
 
-  <section class="section section--band" id="announcements">
+  <section class="section section--band" id="about">
     <div class="wrap">
-      <p class="section-label">Announcements</p>
+      <p class="section-label">The collective</p>
+      <div class="prose measure"><%- aboutHtml %></div>
+    </div>
+  </section>
 
-      <% if (!announcements.length) { %>
+  <section class="section" id="announcements">
+    <div class="wrap">
+      <p class="section-label">News &amp; announcements</p>
+
+      <% if (!pinnedAnnouncements.length && !recentAnnouncements.length) { %>
         <p class="empty">No announcements yet. When a leader posts one it shows up here.</p>
       <% } else { %>
-        <ul class="ann-list">
-          <% announcements.forEach(function (a) { %>
-            <li class="card ann<%= a.is_pinned ? ' ann--pinned' : '' %>">
-              <p class="ann-meta">
-                <% if (a.is_pinned) { %><span class="badge">Pinned</span><% } %>
-                <time datetime="<%= dates.isoAttr(a.created_at) %>"><%= dates.formatDateShort(a.created_at) %></time>
-                <% if (a.author_name) { %><span class="ann-author">· <%= a.author_name %></span><% } %>
-              </p>
-              <h3 class="ann-title"><%= a.title %></h3>
-              <div class="prose"><%- a.body_html %></div>
-            </li>
-          <% }) %>
-        </ul>
+
+        <% if (pinnedAnnouncements.length) { %>
+          <ul class="ann-list ann-list--featured">
+            <% pinnedAnnouncements.forEach(function (a) { %>
+              <li class="card ann ann--pinned">
+                <p class="ann-meta">
+                  <span class="badge">Pinned</span>
+                  <time datetime="<%= dates.isoAttr(a.created_at) %>"><%= dates.formatDateShort(a.created_at) %></time>
+                  <% if (a.author_name) { %><span class="ann-author">· <%= a.author_name %></span><% } %>
+                </p>
+                <h3 class="ann-title"><%= a.title %></h3>
+                <div class="prose measure"><%- a.body_html %></div>
+              </li>
+            <% }) %>
+          </ul>
+        <% } %>
+
+        <% if (recentAnnouncements.length) { %>
+          <% if (pinnedAnnouncements.length) { %><p class="ann-recent-label mono small muted">Also recently</p><% } %>
+          <ul class="ann-compact-list">
+            <% recentAnnouncements.forEach(function (a) { %>
+              <li class="ann-compact-item">
+                <p class="ann-meta">
+                  <time datetime="<%= dates.isoAttr(a.created_at) %>"><%= dates.formatDateShort(a.created_at) %></time>
+                  <% if (a.author_name) { %><span class="ann-author">· <%= a.author_name %></span><% } %>
+                </p>
+                <h3 class="ann-compact-title"><%= a.title %></h3>
+                <% if (a.snippet) { %><p class="muted small"><%= a.snippet %></p><% } %>
+              </li>
+            <% }) %>
+          </ul>
+        <% } %>
       <% } %>
 
       <% if (isLeader) { %>
@@ -224,4 +257,61 @@
       <% } %>
     </div>
   </section>
+
+  <section class="section section--band" id="special-events">
+    <div class="wrap">
+      <p class="section-label">Special events</p>
+
+      <% if (!specialEvents.length) { %>
+        <p class="empty">Nothing extra on the calendar — the weekly sessions roll on.</p>
+      <% } else { %>
+        <ul class="special-list">
+          <% specialEvents.forEach(function (m) { %>
+            <% var mOffsite = m.kind === 'offsite'; %>
+            <li class="card special-card">
+              <p class="ann-meta">
+                <time datetime="<%= dates.isoAttr(m.starts_at) %>"><%= dates.formatDateShort(m.starts_at) %></time>
+                <span class="weekly-sep">·</span> <%= dates.formatTime(m.starts_at) %>
+                <% if (mOffsite) { %><span class="badge">Off-site</span><% } else { %><span class="badge badge--rhouse">R. House</span><% } %>
+              </p>
+              <h3 class="ann-title"><%= m.title || 'Untitled gathering' %></h3>
+              <% if (mOffsite) { %>
+                <% if (m.address) { %>
+                  <p class="muted small"><%= m.address %></p>
+                <% } else { %>
+                  <p class="muted small">Off-site — sign in for the address.</p>
+                <% } %>
+              <% } else if (m.location_label) { %>
+                <p class="muted small"><%= m.location_label %></p>
+              <% } %>
+              <% if (m.host_name) { %><p class="muted small">Hosted by <%= m.host_name %></p><% } %>
+            </li>
+          <% }) %>
+        </ul>
+      <% } %>
+
+      <% if (isLeader) { %>
+        <p class="section-foot"><a class="btn btn--sm" href="/admin/meetings/new">Schedule an event</a></p>
+      <% } %>
+    </div>
+  </section>
+
+  <% if (!currentUser) { %>
+    <section class="section" id="join-cta">
+      <div class="wrap">
+        <div class="card card--lead">
+          <p class="eyebrow">Join us</p>
+          <h2>Come write with us.</h2>
+          <p class="measure">
+            New writers are always welcome — drop into a session, no submission
+            and no obligation to share what you're working on.
+          </p>
+          <p class="hero-actions">
+            <a class="btn btn--primary" href="/register">Join the board</a>
+            <a class="btn" href="/login">Sign in</a>
+          </p>
+        </div>
+      </div>
+    </section>
+  <% } %>
 <% } %>
