@@ -1,0 +1,23 @@
+marked 15.0.12
+
+Vendored from node_modules/marked by the Cloudflare port (P4). One file,
+copied verbatim:
+
+  marked.min.js  ->  marked.min.js
+
+WHY IT IS HERE. PORT-CLOUDFLARE.md §6 moves document conversion to the
+uploader's browser; public/js/upload-cf.js loads this on demand for a .md/.markdown
+submit and parses with the SAME options src/services/ingest/text.js uses in Node
+(`gfm: true, breaks: false` — the CommonMark rule, so a hard-wrapped paragraph
+reflows and a deliberate line break is asked for the Markdown way). The .txt path
+does not touch this file at all: it uses the paragraph/verse heuristic ported
+alongside it in upload-cf.js.
+
+Same version as the Node dependency, so a .md file converts identically on either
+stack.
+
+It is a UMD bundle and publishes `window.marked`. Loaded from this origin because
+the CSP is `script-src 'self'` — nothing is ever fetched from a CDN.
+
+To upgrade: bump marked in package.json, re-copy the file, rewrite the version
+line above, and re-run an upload of the .md fixture end to end.

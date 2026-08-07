@@ -191,12 +191,47 @@ const LOCALS = {
   people: [person], termOptions: [{ value: '30', label: '30 days' }],
   todayLocal: '2026-08-07', transferCandidates: [person],
   weekdays: nodeDates.weekdayNames(), rule,
-  // board / drafts / reader
-  threads: [thread], thread, posts: [post], draft, drafts: [draft],
-  canManage: () => true, canPost: true, kindLabel: () => 'Word document',
-  commentCounts: { 1: 2 }, firstPageHtml: '<p>Page one.</p>', mode: 'html',
-  pageSizes: [{ page_number: 1, width: 800, height: 1000 }],
-  sections: [{ page: 1, heading: 'One' }], threadId: 2,
+  /*
+   * board / drafts / reader (P4).
+   *
+   * `kindLabel` is read TWO WAYS by the two draft templates — drafts/index.ejs
+   * indexes it (`kindLabel[d.kind]`) and drafts/show.ejs prints it
+   * (`<%= kindLabel %>`), because the library shows a label per row and the
+   * reader shows the one for the draft it is already looking at. The fixture
+   * satisfies both with an object that also has a toString(), so neither
+   * template falls back to "[object Object]" and both sides of the comparison
+   * see something a route really could have passed.
+   *
+   * `sections` uses page_number (what SELECT page_number, heading returns and
+   * what the <option value> is built from), and there are TWO of them, because
+   * drafts/show.ejs only renders the section menu at `sections.length > 1`.
+   * `pageSizes` likewise carries more than one row so the pdf/images branches
+   * lay out a real column of slots. `drafts` carries one of each status so the
+   * library exercises its Converting / Didn't convert / retry / remove paths.
+   */
+  threads: [thread], thread, posts: [post], draft,
+  drafts: [
+    draft,
+    { ...draft, id: 4, title: 'Still converting', kind: 'pdf', status: 'processing', page_count: 0 },
+    { ...draft, id: 5, title: 'Never converted', kind: 'images', status: 'failed', page_count: 0,
+      error_msg: 'We could not process those page images. Try uploading them again.' },
+  ],
+  canManage: () => true, canPost: true,
+  kindLabel: Object.assign(
+    { docx: 'Word', pdf: 'PDF', text: 'Text', images: 'Graphic novel' },
+    { toString: () => 'Word' }
+  ),
+  commentCounts: { 1: { total: 2, open: 1 } }, firstPageHtml: '<p>Page one.</p>', mode: 'html',
+  pageSizes: [
+    { page_number: 1, width: 800, height: 1000 },
+    { page_number: 2, width: 800, height: 1000 },
+    { page_number: 3, width: null, height: null },
+  ],
+  sections: [
+    { page_number: 1, heading: 'One' },
+    { page_number: 3, heading: 'Two' },
+  ],
+  threadId: 2,
   watermarkDataUri: 'data:image/svg+xml;base64,AAA',
   // chat
   channel: chatChannel, general: chatGeneral, channelTitle: 'Sci-fi crew',
@@ -261,6 +296,40 @@ function workerRenderPage(name, locals) {
   return workerRenderView('layout', { ...locals, body, defineContent: (n) => locals[n] || '' });
 }
 
+/*
+ * VARIANTS — a second (third, …) pass over one view with different locals.
+ *
+ * One fixture cannot be inside and outside an `if` at the same time, and the
+ * draft reader has branches that matter enough to be worth proving on both
+ * sides: the three reader MODES (html / pdf / images render completely
+ * different panes), the processing and failed states, and the `retryHint`
+ * local that only the Worker sets (views/drafts/show.ejs — see the comment
+ * there; Express deliberately leaves it undefined and takes the else branch,
+ * which the base pass above already covers).
+ *
+ * Each entry renders `view` again with LOCALS merged under its `locals`, and
+ * is compared exactly like a base view.
+ */
+const VARIANTS = [
+  ['drafts/show', 'pdf reader', { mode: 'pdf', draft: { ...draft, kind: 'pdf' }, kindLabel: 'PDF' }],
+  ['drafts/show', 'image reader', { mode: 'images', draft: { ...draft, kind: 'images' }, kindLabel: 'Graphic novel' }],
+  ['drafts/show', 'processing', { draft: { ...draft, status: 'processing', page_count: 0 } }],
+  ['drafts/show', 'failed (Express wording)', {
+    draft: { ...draft, status: 'failed', error_msg: 'We could not read that PDF.' },
+  }],
+  ['drafts/show', 'failed (Worker retryHint)', {
+    draft: { ...draft, status: 'failed', error_msg: 'We could not read that PDF.' },
+    retryHint: 'Conversion happens in your own browser on this site, so trying again means uploading the file once more.',
+  }],
+  ['drafts/show', 'watermark off', { watermarkOn: false, watermarkDataUri: null }],
+  ['drafts/show', 'locked conversation', { thread: { ...thread, is_locked: 1 }, canPost: false }],
+  ['drafts/show', 'thread removed by a leader', { thread: null, threadId: null, posts: [] }],
+  ['drafts/index', 'empty library', { drafts: [] }],
+  ['drafts/index', 'nothing this member may manage', { canManage: () => false }],
+  ['drafts/new', 'with errors', { errors: ['Give the draft a title so people know what they are opening.'] }],
+  ['drafts/new', 'image mode preselected', { values: { title: 'Panels', description: '', mode: 'images' } }],
+];
+
 const names = Object.keys(workerViews).sort();
 let bad = 0;
 for (const name of names) {
@@ -291,5 +360,37 @@ for (const name of names) {
     console.log(`      worker : ${JSON.stringify(b.slice(i - 60, i + 60))}`);
   }
 }
-console.log(`\n${names.length - 1} views compared, ${bad} mismatch(es).`);
+for (const [name, label, extra] of VARIANTS) {
+  const locals = { ...LOCALS, ...extra };
+  let a;
+  let b;
+  try {
+    a = nodeRenderPage(name, locals);
+  } catch (e) {
+    console.log(`FAIL  ${name} [${label}] (ejs side threw: ${e.message.split('\n')[0]})`);
+    bad += 1;
+    continue;
+  }
+  try {
+    b = workerRenderPage(name, locals);
+  } catch (e) {
+    console.log(`FAIL  ${name} [${label}] (worker side threw: ${e.message.split('\n')[0]})`);
+    bad += 1;
+    continue;
+  }
+  if (a === b) {
+    console.log(`OK    ${name} [${label}]  (${a.length} bytes identical)`);
+  } else {
+    bad += 1;
+    let i = 0;
+    while (i < a.length && i < b.length && a[i] === b[i]) i += 1;
+    console.log(`DIFF  ${name} [${label}]  first difference at byte ${i}`);
+    console.log(`      express: ${JSON.stringify(a.slice(i - 60, i + 60))}`);
+    console.log(`      worker : ${JSON.stringify(b.slice(i - 60, i + 60))}`);
+  }
+}
+
+console.log(
+  `\n${names.length - 1} views + ${VARIANTS.length} branch variants compared, ${bad} mismatch(es).`
+);
 process.exit(bad ? 1 : 0);

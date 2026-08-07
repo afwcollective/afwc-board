@@ -1,0 +1,21 @@
+mammoth 1.12.0
+
+Vendored from node_modules/mammoth by the Cloudflare port (P4). One file,
+copied verbatim:
+
+  mammoth.browser.min.js  ->  mammoth.browser.min.js
+
+WHY IT IS HERE. PORT-CLOUDFLARE.md §6: a Worker on the free plan gets ~10 ms of
+CPU per request, and converting a chapter-length .docx is nowhere near that. So
+the conversion runs in the UPLOADER'S BROWSER — public/js/upload-cf.js loads
+this file on demand (only for a .docx submit) and posts the resulting pages back
+to be sanitized and stored. The Express app on `main` still uses the Node build
+of the same library and the same version, so a document converts identically on
+either stack.
+
+It is a UMD bundle and publishes `window.mammoth`. It is loaded from this origin
+because the Content-Security-Policy in worker/src/index.js and src/app.js is
+`script-src 'self'` — nothing is ever fetched from a CDN.
+
+To upgrade: bump mammoth in package.json, re-copy the file, rewrite the version
+line above, and re-run an upload of the .docx fixture end to end.

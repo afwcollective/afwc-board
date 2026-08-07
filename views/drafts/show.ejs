@@ -76,11 +76,24 @@
         <div class="card reader-state reader-state--failed">
           <p class="eyebrow">Didn’t convert</p>
           <h2 class="reader-state-title"><%= draft.error_msg || 'That file could not be converted.' %></h2>
-          <p class="measure">
+          <p class="measure"><%
+              /* WHAT "try again" MEANS depends on WHERE CONVERSION HAPPENS, and this
+                 template is shared by two apps that do it in different places. Express
+                 converts server-side from the original it still holds, so a retry really
+                 does cost nothing. The Cloudflare Worker converts in the uploader's
+                 browser (PORT-CLOUDFLARE.md §6) and never hands an original back out, so
+                 a retry there is a re-upload — worker/src/routes/drafts.js passes
+                 `retryHint` to say so in the uploader's own words.
+
+                 The guard is what keeps Express byte-identical: it sets nothing, falls
+                 into the else branch, and emits exactly the whitespace and the sentence
+                 it always did. Both tags are deliberately tight against the <p> and the
+                 </p> for that reason — do not reformat them. */
+              if (typeof retryHint !== 'undefined' && retryHint) { %><%= retryHint %><% } else { %>
             The original is still here, so trying again costs nothing — most failures are a
             file that was still being written when it was picked, or a format the converter
             could not open.
-          </p>
+          <% } %></p>
           <% if (canManage) { %>
             <div class="draft-actions">
               <form method="post" action="/drafts/<%= draft.id %>/retry" class="inline-form">

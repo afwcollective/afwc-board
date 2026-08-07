@@ -33,7 +33,8 @@ import chatRouter from './routes/chat.js';
 import eventsRouter from './routes/events.js';
 import hostRouter from './routes/host.js';
 import timerRouter from './routes/timer.js';
-import { draftsRouter } from './routes/stubs.js';
+import draftsRouter from './routes/drafts.js';
+import readerRouter from './routes/reader.js';
 
 const app = new Hono();
 
@@ -120,6 +121,14 @@ app.route('/drafts', draftsRouter);
 app.route('/events', eventsRouter);
 app.route('/host', hostRouter);
 app.route('/timer', timerRouter);
+/*
+ * The reader lands LAST and at the root, exactly as src/app.js mounted
+ * src/routes/reader.js after src/routes/drafts.js: it owns /reader,
+ * /comments/:id/* and the /drafts/:id/… paths the library router does not.
+ * Hono merges both into one router, so the two sets coexist rather than one
+ * shadowing the other.
+ */
+app.route('/', readerRouter);
 
 /* ---------------- errors ---------------- */
 
