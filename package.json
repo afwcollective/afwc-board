@@ -9,7 +9,13 @@
   },
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "worker:build": "node worker/build/build.mjs",
+    "worker:dev": "npm run worker:build && wrangler dev --local --config worker/wrangler.toml --port 8787",
+    "worker:migrate:local": "wrangler d1 migrations apply DB --local --config worker/wrangler.toml",
+    "worker:seed:local": "node worker/build/seed.mjs",
+    "worker:bench:pbkdf2": "node worker/build/bench-pbkdf2.mjs",
+    "worker:parity:views": "node worker/build/view-parity.mjs"
   },
   "dependencies": {
     "archiver": "^7.0.1",
@@ -23,5 +29,11 @@
     "multer": "^2.2.0",
     "pdfjs-dist": "^4.10.38",
     "sanitize-html": "^2.17.0"
+  },
+  "devDependencies": {
+    "acorn": "^8.18.0",
+    "esbuild": "^0.28.1",
+    "hono": "^4.13.1",
+    "wrangler": "^4.120.0"
   }
 }

@@ -1,0 +1,47 @@
+# AFWC Board — Cloudflare Worker configuration.
+#
+# Everything here is runnable OFFLINE: `wrangler dev --local` boots workerd with
+# miniflare's local D1 (SQLite under .wrangler/state) and local R2. No Cloudflare
+# account is required to develop; `database_id` below is a placeholder that gets
+# replaced with the real UUID from `wrangler d1 create` on the day the group's
+# Cloudflare account exists (see README / PORT-CLOUDFLARE.md).
+#
+# Paths are relative to THIS file (worker/), which is why the assets directory
+# reaches back up to the shared ../public that the Express app also serves.
+
+name = "afwc-board"
+main = "dist/index.js"
+compatibility_date = "2026-08-01"
+# nodejs_compat: sanitize-html's dependency graph (htmlparser2, postcss) reaches
+# for a handful of node builtins. The flag costs nothing and keeps the bundle
+# honest rather than shimming them by hand.
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+# ---------------------------------------------------------------- database --
+[[d1_databases]]
+binding = "DB"
+database_name = "afwc-board"
+database_id = "00000000-0000-0000-0000-000000000000" # placeholder until the account exists
+migrations_dir = "migrations"
+
+# ------------------------------------------------------------------- files --
+# Draft originals and off-site event attachments (P4). Keys keep the same shape
+# the Express app used on disk: uploads/drafts/<id>/… and uploads/events/<id>/…
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "afwc-board-files"
+
+# ------------------------------------------------------------------ assets --
+# public/ is shared verbatim with the Express app.
+#
+# run_worker_first = true is deliberate. The Express app applies its security
+# headers BEFORE express.static (src/app.js), so every response — stylesheet,
+# script, image — carries nosniff/Referrer-Policy/X-Frame-Options/CSP. Letting
+# the assets layer answer first would silently drop those headers on exactly the
+# files an attacker would most like to have sniffed. The Worker therefore sees
+# every request, sets the headers, and hands file-shaped paths to env.ASSETS.
+[assets]
+directory = "../public"
+binding = "ASSETS"
+run_worker_first = true
