@@ -1,0 +1,243 @@
+<%# Chat — one page, two panes. On a laptop the rail (channels + DMs) and the
+    conversation sit side by side; at phone width only one of them is on screen
+    at a time and `chat-shell--conversation` decides which (see chat.css). That
+    collapse is pure CSS driven by the URL: /chat is the list, /chat/c/:id is a
+    conversation with a "back" link. No JavaScript is involved in navigating. %>
+<section class="section chat-section">
+  <div class="wrap">
+    <p class="eyebrow">Members · Chat</p>
+
+    <div class="chat-shell <%= conversationFocused ? 'chat-shell--conversation' : 'chat-shell--list' %>">
+
+      <aside class="chat-rail" aria-label="Conversations">
+        <p class="chat-rail-label mono">Channels</p>
+        <ul class="chat-nav">
+          <li>
+            <a class="chat-nav-link<%= channel.id === general.id ? ' is-current' : '' %>"
+               href="/chat/c/<%= general.id %>"
+               <%- channel.id === general.id ? 'aria-current="true"' : '' %>>
+              <span class="chat-nav-name">#general</span>
+              <span class="chat-nav-sub small muted">Everyone</span>
+            </a>
+          </li>
+          <% myGroups.forEach(function (g) { %>
+            <li>
+              <a class="chat-nav-link<%= channel.id === g.id ? ' is-current' : '' %>"
+                 href="/chat/c/<%= g.id %>"
+                 <%- channel.id === g.id ? 'aria-current="true"' : '' %>>
+                <span class="chat-nav-name">
+                  <%= g.name %>
+                  <% if (g.archived_at) { %><span class="badge badge--warn">Archived</span><% } %>
+                </span>
+                <% if (g.description) { %><span class="chat-nav-sub small muted"><%= g.description %></span><% } %>
+              </a>
+            </li>
+          <% }) %>
+        </ul>
+
+        <% if (joinable.length) { %>
+          <p class="chat-rail-label mono">Groups you can join</p>
+          <ul class="chat-nav chat-nav--quiet">
+            <% joinable.forEach(function (g) { %>
+              <li>
+                <a class="chat-nav-link<%= channel.id === g.id ? ' is-current' : '' %>" href="/chat/c/<%= g.id %>">
+                  <span class="chat-nav-name"><%= g.name %></span>
+                  <span class="chat-nav-sub small muted">
+                    <%= g.description ? g.description : 'No description' %>
+                    · <%= g.member_count %> member<%= g.member_count === 1 ? '' : 's' %>
+                  </span>
+                </a>
+              </li>
+            <% }) %>
+          </ul>
+        <% } %>
+
+        <details class="chat-details">
+          <summary class="mono">New group</summary>
+          <form method="post" action="/chat/groups" class="chat-mini-form">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <div class="field">
+              <label for="group-name">Name</label>
+              <input type="text" id="group-name" name="name" maxlength="60" required
+                     placeholder="Sci-fi crew">
+            </div>
+            <div class="field">
+              <label for="group-desc">One line about it <span class="optional">(optional)</span></label>
+              <input type="text" id="group-desc" name="description" maxlength="140"
+                     placeholder="Space opera, first contact, hard SF">
+            </div>
+            <button class="btn btn--sm btn--primary" type="submit">Start group</button>
+          </form>
+        </details>
+
+        <p class="chat-rail-label mono">Direct messages</p>
+        <% if (!dms.length) { %>
+          <p class="chat-rail-empty small muted">No private conversations yet.</p>
+        <% } else { %>
+          <ul class="chat-nav">
+            <% dms.forEach(function (d) { %>
+              <li>
+                <a class="chat-nav-link<%= channel.id === d.id ? ' is-current' : '' %>"
+                   href="/chat/c/<%= d.id %>"
+                   <%- channel.id === d.id ? 'aria-current="true"' : '' %>>
+                  <span class="chat-nav-name"><%= d.other_name %></span>
+                  <span class="chat-nav-sub small muted">
+                    Private<% if (d.last_at) { %> · <%= dates.relative(d.last_at) %><% } %>
+                  </span>
+                </a>
+              </li>
+            <% }) %>
+          </ul>
+        <% } %>
+
+        <details class="chat-details">
+          <summary class="mono">New message</summary>
+          <% if (!people.length) { %>
+            <p class="small muted">There is nobody else here yet.</p>
+          <% } else { %>
+            <form method="post" action="/chat/dm" class="chat-mini-form">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+              <div class="field">
+                <label for="dm-user">Write to</label>
+                <select id="dm-user" name="user_id" required>
+                  <% people.forEach(function (p) { %>
+                    <option value="<%= p.id %>"><%= p.display_name %> (@<%= p.username %>)</option>
+                  <% }) %>
+                </select>
+              </div>
+              <button class="btn btn--sm" type="submit">Open conversation</button>
+            </form>
+          <% } %>
+          <p class="hint">Private to the two of you. Leaders can’t read it.</p>
+        </details>
+      </aside>
+
+      <div class="chat-pane">
+        <p class="chat-back">
+          <a href="/chat">← All conversations</a>
+        </p>
+
+        <header class="chat-head">
+          <div class="chat-head-main">
+            <h1 class="chat-title">
+              <%= channelTitle %>
+              <% if (channel.archived_at) { %><span class="badge badge--warn">Archived</span><% } %>
+              <% if (channel.kind === 'dm') { %><span class="badge">Private</span><% } %>
+            </h1>
+            <p class="chat-sub small muted">
+              <% if (channel.kind === 'dm') { %>
+                Just you and <%= partner ? partner.display_name : 'them' %>. Nobody else can read this —
+                not leaders, not the architect.
+              <% } else if (channel.kind === 'general') { %>
+                <%= channel.description %> · <%= memberCount %> member<%= memberCount === 1 ? '' : 's' %>
+              <% } else { %>
+                <%= channel.description ? channel.description : 'No description' %>
+                · <%= memberCount %> member<%= memberCount === 1 ? '' : 's' %>
+              <% } %>
+            </p>
+          </div>
+
+          <div class="chat-head-actions">
+            <% if (channel.kind === 'group' && !joined && !channel.archived_at) { %>
+              <form method="post" action="/chat/c/<%= channel.id %>/join" class="inline-form">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <button class="btn btn--sm btn--primary" type="submit">Join</button>
+              </form>
+            <% } %>
+            <% if (channel.kind === 'group' && joined) { %>
+              <form method="post" action="/chat/c/<%= channel.id %>/leave" class="inline-form"
+                    data-confirm="Leave this group?">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <button class="btn btn--sm" type="submit">Leave</button>
+              </form>
+            <% } %>
+            <% if (canAdmin) { %>
+              <form method="post" action="/chat/c/<%= channel.id %>/archive" class="inline-form"
+                    data-confirm="<%= channel.archived_at ? 'Reopen this group?' : 'Archive this group? Its messages stay readable.' %>">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <button class="btn btn--sm" type="submit"><%= channel.archived_at ? 'Reopen' : 'Archive' %></button>
+              </form>
+            <% } %>
+          </div>
+        </header>
+
+        <% if (canAdmin) { %>
+          <details class="chat-details chat-details--rename">
+            <summary class="mono">Rename this group</summary>
+            <form method="post" action="/chat/c/<%= channel.id %>/rename" class="chat-mini-form">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+              <div class="field">
+                <label for="rename-name">Name</label>
+                <input type="text" id="rename-name" name="name" maxlength="60" required value="<%= channel.name %>">
+              </div>
+              <div class="field">
+                <label for="rename-desc">One line about it</label>
+                <input type="text" id="rename-desc" name="description" maxlength="140"
+                       value="<%= channel.description || '' %>">
+              </div>
+              <button class="btn btn--sm" type="submit">Save</button>
+            </form>
+          </details>
+        <% } %>
+
+        <% if (!canRead) { %>
+          <div class="card chat-preview">
+            <h2>Join to read this group</h2>
+            <p class="measure">
+              <%= channel.description ? channel.description : 'No description yet.' %>
+            </p>
+            <p class="small muted">
+              Messages inside a project group are only visible to the members who have joined it.
+            </p>
+            <form method="post" action="/chat/c/<%= channel.id %>/join" class="inline-form">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+              <button class="btn btn--primary" type="submit">Join “<%= channel.name %>”</button>
+            </form>
+          </div>
+        <% } else { %>
+          <div class="chat-stream" id="chat-stream" data-chat-stream
+               data-head-url="/chat/c/<%= channel.id %>/head"
+               data-fragment-url="/chat/c/<%= channel.id %>/fragment"
+               data-show="<%= show %>">
+            <%- include('messages') %>
+          </div>
+
+          <div class="chat-errors" data-chat-errors hidden role="alert"></div>
+
+          <% if (canPost) { %>
+            <form class="chat-compose" method="post" action="/chat/c/<%= channel.id %>/messages"
+                  data-chat-form data-csrf="<%= csrfToken %>">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+              <label class="chat-sr" for="chat-body">Message</label>
+              <textarea id="chat-body" name="body" rows="2" maxlength="<%= limits.maxChars %>"
+                        placeholder="Message <%= channelTitle %>"></textarea>
+
+              <%# Revealed by public/js/chat.js. Attachments ride on a multipart
+                  request, which can only carry its CSRF token in a header, so
+                  they need JavaScript; posting text does not. %>
+              <div class="chat-attach" data-chat-attach hidden>
+                <label class="chat-sr" for="chat-files">Attach files</label>
+                <input type="file" id="chat-files" name="files" multiple
+                       accept=".jpg,.jpeg,.png,.webp,.gif,.pdf,.docx,.txt,.md,.zip">
+                <p class="hint">
+                  Up to <%= limits.maxFiles %> files, <%= limits.maxFileMb %> MB each —
+                  images, PDF, Word, text, markdown or zip.
+                </p>
+              </div>
+
+              <div class="chat-compose-foot">
+                <p class="hint chat-hint">
+                  <strong>Enter</strong> sends · <strong>Shift + Enter</strong> starts a new line ·
+                  *italics*, **bold**
+                </p>
+                <button class="btn btn--primary btn--sm" type="submit" data-chat-send>Send</button>
+              </div>
+            </form>
+          <% } else if (channel.archived_at) { %>
+            <p class="notice chat-closed">This group is archived — the transcript stays, new messages don’t.</p>
+          <% } %>
+        <% } %>
+      </div>
+    </div>
+  </div>
+</section>

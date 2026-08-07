@@ -14,6 +14,7 @@
       <% } %>
       <% if (currentUser) { %>
         <a href="/board" <%- currentPath.indexOf('/board') === 0 ? 'aria-current="page"' : '' %>>Board</a>
+        <a href="/chat" <%- currentPath.indexOf('/chat') === 0 ? 'aria-current="page"' : '' %>>Chat</a>
         <a href="/drafts" <%- currentPath.indexOf('/drafts') === 0 ? 'aria-current="page"' : '' %>>Drafts</a>
         <% if (isLeader) { %>
           <a href="/admin" <%- currentPath.indexOf('/admin') === 0 ? 'aria-current="page"' : '' %>>Admin</a>

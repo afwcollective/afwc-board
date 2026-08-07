@@ -1,0 +1,68 @@
+<%# The transcript itself. Rendered inside views/chat/index.ejs on a full page
+    load, and on its own (layout: false) by GET /chat/c/:id/fragment, which is
+    what the 20-second poll in public/js/chat.js swaps in. Keep it free of
+    anything that depends on the surrounding page: it has to stand alone. %>
+<% if (hasEarlier) { %>
+  <p class="chat-earlier">
+    <a class="btn btn--sm" data-chat-earlier
+       href="/chat/c/<%= channel.id %>?show=<%= show + pageSize %>#chat-stream">Show earlier messages</a>
+  </p>
+<% } %>
+
+<% if (!messages.length) { %>
+  <p class="empty chat-empty">No messages here yet. Say the first thing.</p>
+<% } else { %>
+  <ol class="chat-list">
+    <% messages.forEach(function (m) { %>
+      <% if (m.daySep) { %>
+        <li class="chat-day" role="presentation"><span class="mono"><%= m.dayLabel %></span></li>
+      <% } %>
+      <li class="chat-msg<%= m.grouped ? ' chat-msg--grouped' : '' %><%= m.removed ? ' chat-msg--removed' : '' %><%= m.mine ? ' chat-msg--mine' : '' %>"
+          id="m-<%= m.id %>">
+        <% if (m.removed) { %>
+          <p class="small muted">Message removed.</p>
+        <% } else { %>
+          <% if (!m.grouped) { %>
+            <p class="chat-msg-head">
+              <span class="chat-author"><%= m.author %></span>
+              <time class="chat-time mono small muted" datetime="<%= dates.isoAttr(m.created_at) %>"
+                    title="<%= dates.formatDateTime(m.created_at) %>"><%= dates.relative(m.created_at) %></time>
+            </p>
+          <% } %>
+
+          <% if (m.body_html) { %>
+            <div class="prose chat-body"><%- m.body_html %></div>
+          <% } %>
+
+          <% if (m.attachments.length) { %>
+            <ul class="chat-files">
+              <% m.attachments.forEach(function (a) { %>
+                <li class="chat-file<%= a.isImage ? ' chat-file--img' : '' %>">
+                  <% if (a.isImage) { %>
+                    <a href="/chat/files/<%= a.id %>" class="chat-thumb-link">
+                      <img class="chat-thumb" src="/chat/files/<%= a.id %>" alt="<%= a.name %>" loading="lazy">
+                    </a>
+                    <p class="chat-file-cap mono small muted"><%= a.name %> · <%= a.size %></p>
+                  <% } else { %>
+                    <a class="chat-chip" href="/chat/files/<%= a.id %>">
+                      <span class="chat-chip-name"><%= a.name %></span>
+                      <span class="chat-chip-size mono small"><%= a.size %></span>
+                    </a>
+                  <% } %>
+                </li>
+              <% }) %>
+            </ul>
+          <% } %>
+
+          <% if (m.canDelete) { %>
+            <form method="post" action="/chat/messages/<%= m.id %>/delete" class="inline-form chat-del"
+                  data-confirm="Remove this message?">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+              <button class="btn btn--sm btn--danger" type="submit">Remove</button>
+            </form>
+          <% } %>
+        <% } %>
+      </li>
+    <% }) %>
+  </ol>
+<% } %>
