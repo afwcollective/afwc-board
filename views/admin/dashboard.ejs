@@ -3,119 +3,252 @@
     <p class="eyebrow">Leaders only</p>
     <h1>Admin console</h1>
     <p class="lede measure">
-      Everything the group needs is a button on this page. Nothing here needs a
-      developer, and nothing here can be undone by accident — deletes are soft.
+      Same site as everyone else, plus this one tab. It opens on running the
+      next session — everything else is a shortcut away.
     </p>
 
-    <div class="stat-row">
-      <div class="stat">
-        <span class="stat-k">Active members</span>
-        <span class="stat-v"><%= memberCount %></span>
+    <p class="section-label">Run the next session</p>
+    <% if (!meeting) { %>
+      <div class="card card--meeting">
+        <p class="eyebrow eyebrow--muted">Nothing on the calendar</p>
+        <p class="empty">The front page is showing "no meeting scheduled yet".</p>
+        <p class="form-actions">
+          <a class="btn btn--sm btn--primary" href="/admin/meetings/new">Schedule a meeting</a>
+          <a class="btn btn--sm" href="/admin/recurring/new">Add a weekly meeting</a>
+        </p>
       </div>
-      <div class="stat">
-        <span class="stat-k">Leaders</span>
-        <span class="stat-v"><%= leaderCount %></span>
-      </div>
-      <div class="stat">
-        <span class="stat-k">Announcements</span>
-        <span class="stat-v"><%= announcementCount %></span>
-      </div>
-      <div class="stat">
-        <span class="stat-k">Group passcode</span>
-        <span class="stat-v stat-v--sm"><%= passcodeSet ? 'Set' : 'Not set' %></span>
-      </div>
-    </div>
+    <% } else { %>
+      <div class="card card--meeting">
+        <p class="eyebrow eyebrow--muted">
+          <%= dates.relative(meeting.starts_at) %><% if (meeting.is_recurring) { %> · every <%= dates.weekdayName(meeting.weekday) %><% } %>
+          <% if (meeting.overridden) { %> · <span class="badge">Customized for this date</span><% } %>
+        </p>
+        <p class="meeting-date">
+          <time datetime="<%= dates.isoAttr(meeting.starts_at) %>"><%= dates.formatDate(meeting.starts_at) %></time>
+        </p>
+        <p class="meeting-time"><%= dates.formatTime(meeting.starts_at) %></p>
+        <% if (meeting.title) { %><h2 class="meeting-title"><%= meeting.title %></h2><% } %>
+        <% if (meeting.kind === 'offsite') { %><p><span class="badge">Off-site event</span></p><% } %>
 
-    <div class="admin-grid">
-      <div class="card">
-        <p class="eyebrow eyebrow--muted">Next meeting</p>
-        <% if (meeting) { %>
-          <p class="meeting-date"><%= dates.formatDate(meeting.starts_at) %></p>
-          <p class="meeting-time"><%= dates.formatTime(meeting.starts_at) %></p>
-          <p class="muted">
-            <%= meeting.location_label || 'No table label set' %><br>
-            <% if (meeting.map_x !== null && meeting.map_y !== null) { %>
-              Marker at <%= meeting.map_x %>% / <%= meeting.map_y %>% of the map
-            <% } else { %>
-              No map marker yet — the front page will show the plain floor plan.
-            <% } %>
-          </p>
-          <p>
-            <% if (meeting.is_recurring) { %>
-              <a class="btn btn--sm" href="/admin/recurring/<%= meeting.recurring_id %>/edit">Edit this weekly meeting</a>
-            <% } else { %>
-              <a class="btn btn--sm" href="/admin/meetings/<%= meeting.id %>/edit">Edit this meeting</a>
-            <% } %>
+        <dl class="meeting-facts">
+          <dt>Hosted by</dt>
+          <dd><%= meeting.host_name || 'No host yet' %></dd>
+          <% if (meeting.kind !== 'offsite' && meeting.location_label) { %>
+            <dt>Table</dt>
+            <dd><span class="badge badge--rhouse">Look for us</span> <%= meeting.location_label %></dd>
+          <% } %>
+        </dl>
+
+        <% if (meeting.kind === 'offsite') { %>
+          <p class="hint hint--block">
+            This is an off-site event — there is no R. House table or pin to set
+            from here. Change the host, address or details from
+            <a href="/admin/meetings/<%= meeting.id %>/edit">the full edit page</a>.
           </p>
         <% } else { %>
-          <p class="empty">Nothing scheduled. The front page is showing "no meeting scheduled yet".</p>
-          <p><a class="btn btn--sm btn--primary" href="/admin/meetings/new">Schedule a meeting</a></p>
-          <p><a class="btn btn--sm" href="/admin/recurring/new">Add a weekly meeting</a></p>
+
+          <% if (meeting.is_recurring) { %>
+            <form method="post" action="/admin/recurring/<%= meeting.recurring_id %>/host" class="form dash-host-form">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+              <input type="hidden" name="return_to" value="/admin">
+              <input type="hidden" name="local_date" value="<%= meeting.local_date %>">
+              <div class="field">
+                <label for="dash-host">Host for <%= dates.formatDateShort(meeting.starts_at) %></label>
+                <select id="dash-host" name="user_id">
+                  <option value="none" <%= meeting.host_user_id ? '' : 'selected' %>>Nobody yet</option>
+                  <% memberOptions.forEach(function (p) { %>
+                    <option value="<%= p.id %>" <%= String(meeting.host_user_id) === String(p.id) ? 'selected' : '' %>>
+                      <%= p.display_name %> (<%= p.username %>)
+                    </option>
+                  <% }) %>
+                </select>
+              </div>
+              <div class="form-actions">
+                <button class="btn btn--sm btn--primary" type="submit">Save host</button>
+              </div>
+            </form>
+          <% } %>
+
+          <form method="post"
+                action="<%= meeting.is_recurring
+                  ? '/host/recurring/' + meeting.recurring_id + '/' + meeting.local_date
+                  : '/admin/meetings/' + meeting.id %>"
+                class="form dash-pin-form">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <input type="hidden" name="return_to" value="/admin">
+            <% if (meeting.is_recurring) { %>
+              <input type="hidden" name="time_hhmm" value="<%= meeting.time_hhmm %>">
+              <input type="hidden" name="notes" value="<%= meeting.notes || '' %>">
+              <p class="hint hint--block">
+                <% if (meeting.overridden) { %>
+                  This date already has its own table saved — saving here updates
+                  just <%= dates.formatDateShort(meeting.starts_at) %>.
+                <% } else { %>
+                  Nothing saved for this date yet — saving creates a one-off
+                  change for just <%= dates.formatDateShort(meeting.starts_at) %>.
+                <% } %>
+                To move the default table every <%= dates.weekdayName(meeting.weekday) %>, edit
+                <a href="/admin/recurring/<%= meeting.recurring_id %>/edit">the weekly meeting</a> instead.
+              </p>
+            <% } else { %>
+              <input type="hidden" name="starts_at_local" value="<%= dates.utcIsoToLocalInput(meeting.starts_at) %>">
+              <input type="hidden" name="title" value="<%= meeting.title || '' %>">
+              <input type="hidden" name="notes" value="<%= meeting.notes || '' %>">
+              <input type="hidden" name="kind" value="rhouse">
+              <% if (meeting.is_cancelled) { %><input type="hidden" name="is_cancelled" value="1"><% } %>
+              <div class="field">
+                <label for="dash-host-oneoff">Host</label>
+                <select id="dash-host-oneoff" name="host_user_id">
+                  <option value="" <%= meeting.host_user_id ? '' : 'selected' %>>Nobody yet</option>
+                  <% memberOptions.forEach(function (p) { %>
+                    <option value="<%= p.id %>" <%= String(meeting.host_user_id) === String(p.id) ? 'selected' : '' %>>
+                      <%= p.display_name %> (<%= p.username %>)
+                    </option>
+                  <% }) %>
+                </select>
+              </div>
+            <% } %>
+
+            <div class="meeting-form-grid dash-next-grid">
+              <div class="meeting-form-fields">
+                <div class="field">
+                  <label for="dash-location">Where we're sitting</label>
+                  <input id="dash-location" name="location_label" type="text" maxlength="120"
+                         value="<%= meeting.location_label || '' %>"
+                         placeholder="Long communal table by the coffee stall">
+                </div>
+                <div class="form-actions">
+                  <button class="btn btn--sm btn--primary" type="submit">Save table &amp; pin</button>
+                </div>
+              </div>
+
+              <div class="meeting-form-map">
+                <%- include('../partials/floormap', {
+                      markerX: meeting.map_x,
+                      markerY: meeting.map_y,
+                      interactive: true
+                    }) %>
+
+                <input type="hidden" id="map_x" name="map_x"
+                       value="<%= meeting.map_x === null || meeting.map_x === undefined ? '' : meeting.map_x %>">
+                <input type="hidden" id="map_y" name="map_y"
+                       value="<%= meeting.map_y === null || meeting.map_y === undefined ? '' : meeting.map_y %>">
+
+                <p class="map-readout">
+                  <span class="eyebrow eyebrow--muted">Marker</span>
+                  <span id="map-readout-value" class="mono">
+                    <%= (meeting.map_x === null || meeting.map_x === undefined) ? 'not placed' : meeting.map_x + '% / ' + meeting.map_y + '%' %>
+                  </span>
+                  <button type="button" class="btn btn--sm" id="map-clear">Clear marker</button>
+                </p>
+              </div>
+            </div>
+          </form>
         <% } %>
       </div>
+    <% } %>
 
-      <div class="card">
-        <p class="eyebrow eyebrow--muted">Quick links</p>
-        <ul class="link-list">
-          <li><a href="/admin/members">Members — deactivate, promote, generate reset codes</a></li>
-          <li><a href="/admin/meetings">Meetings — the weekly schedule, one-off dates, the map pin</a></li>
-          <li><a href="/admin/announcements">Announcements — post, pin, remove</a></li>
-          <li><a href="/admin/about">About the group — edit the front-page intro</a></li>
-          <li><a href="/admin/passcode">Group passcode — change the shared code</a></li>
-          <li><a href="/admin/help">Leader handbook — how everything works</a></li>
-          <li><a href="/">View the public front page</a></li>
-        </ul>
+    <p class="section-label">Post a quick headline</p>
+    <form method="post" action="/admin/announcements" class="form card card--form">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <div class="field">
+        <label for="dash-ann-title">Title</label>
+        <input id="dash-ann-title" name="title" type="text" required maxlength="140"
+               placeholder="Sprint moved to the patio this week">
       </div>
+      <div class="field">
+        <label for="dash-ann-body">Body <span class="optional">(markdown)</span></label>
+        <textarea id="dash-ann-body" name="body_md" rows="4" required maxlength="20000"></textarea>
+      </div>
+      <div class="field field--check">
+        <label class="check">
+          <input type="checkbox" name="is_pinned" value="1">
+          <span>Pin this to the top</span>
+        </label>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary">Post</button>
+        <a class="btn btn--sm" href="/admin/announcements">All announcements</a>
+      </div>
+    </form>
 
-      <div class="card <%= backupStale ? 'card--warn' : '' %>">
-        <p class="eyebrow eyebrow--muted">Backup</p>
-        <p class="measure">
-          One zip with the whole database and every uploaded draft — everything
-          needed to stand the app back up on a fresh host. See the
-          <a href="/admin/help#backups">leader handbook</a> for what's inside and
-          how to restore it.
+    <p class="section-label">Shortcuts</p>
+    <div class="shortcut-grid">
+      <a class="card shortcut-card" href="/admin/members">
+        <p class="eyebrow eyebrow--muted">Members</p>
+        <p class="shortcut-figure"><%= memberCount %></p>
+        <p class="small muted">
+          active · <%= leaderCount %> leader<%= leaderCount === 1 ? '' : 's' %>
+          <% if (expiringLeaderCount > 0) { %>
+            <br><span class="badge badge--warn"><%= expiringLeaderCount %> term<%= expiringLeaderCount === 1 ? '' : 's' %> ending soon</span>
+          <% } %>
         </p>
-        <p>
+      </a>
+
+      <a class="card shortcut-card" href="/admin/meetings">
+        <p class="eyebrow eyebrow--muted">Meetings &amp; events</p>
+        <p class="small muted">The weekly schedule, one-off dates, the map pin.</p>
+      </a>
+
+      <a class="card shortcut-card" href="/admin/announcements">
+        <p class="eyebrow eyebrow--muted">Announcements</p>
+        <p class="shortcut-figure"><%= announcementCount %></p>
+        <p class="small muted">posted</p>
+      </a>
+
+      <a class="card shortcut-card" href="/admin/quotes">
+        <p class="eyebrow eyebrow--muted">Quotes</p>
+        <p class="small muted">The front page's rotating quote.</p>
+      </a>
+
+      <a class="card shortcut-card" href="/admin/about">
+        <p class="eyebrow eyebrow--muted">About</p>
+        <p class="small muted">The front-page intro.</p>
+      </a>
+
+      <a class="card shortcut-card" href="/admin/passcode">
+        <p class="eyebrow eyebrow--muted">Passcode</p>
+        <p class="small muted"><%= passcodeSet ? 'Set' : 'Not set' %> — the shared code.</p>
+      </a>
+
+      <div class="card shortcut-card <%= backupStale ? 'card--warn' : '' %>">
+        <p class="eyebrow eyebrow--muted">Backup</p>
+        <p class="small muted">
           <% if (lastBackupAt) { %>
             Last backed up
-            <span class="badge <%= backupStale ? 'badge--warn' : 'badge--ok' %>">
-              <%= dates.relative(lastBackupAt) %>
-            </span>
+            <span class="badge <%= backupStale ? 'badge--warn' : 'badge--ok' %>"><%= dates.relative(lastBackupAt) %></span>
           <% } else { %>
             <span class="badge badge--warn">Never backed up</span>
           <% } %>
         </p>
-        <% if (backupStale) { %>
-          <p class="small muted">
-            It's been over 30 days (or never) — worth downloading a fresh copy today.
-          </p>
-        <% } %>
-        <p>
-          <a class="btn btn--sm btn--primary" href="/admin/backup.zip">Download backup</a>
-        </p>
+        <p><a class="btn btn--sm btn--primary" href="/admin/backup.zip">Download backup</a></p>
       </div>
 
-      <div class="card">
-        <p class="eyebrow eyebrow--muted">Reader watermark</p>
-        <p class="measure">
-          When on, every page in the draft reader shows a faint, tiled tag of
-          the person reading it — their name and username, unselectable and
-          too light to disturb reading. It never appears when printing (the
-          reader is already blanked on paper) and it doesn’t affect who can
-          copy or download anything; it just makes a leaked screenshot
-          attributable.
-        </p>
-        <p>
-          Currently
-          <span class="badge <%= watermarkOn ? 'badge--ok' : 'badge--warn' %>">
-            <%= watermarkOn ? 'On' : 'Off' %>
-          </span>
-        </p>
-        <form method="post" action="/admin/settings/watermark" class="inline-form">
-          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-          <button class="btn btn--sm" type="submit"><%= watermarkOn ? 'Turn off' : 'Turn on' %></button>
-        </form>
-      </div>
+      <a class="card shortcut-card" href="/admin/help">
+        <p class="eyebrow eyebrow--muted">Handbook</p>
+        <p class="small muted">How everything works.</p>
+      </a>
+    </div>
+
+    <div class="card">
+      <p class="eyebrow eyebrow--muted">Reader watermark</p>
+      <p class="measure">
+        When on, every page in the draft reader shows a faint, tiled tag of
+        the person reading it — their name and username, unselectable and
+        too light to disturb reading. It never appears when printing, and it
+        doesn’t affect who can copy or download anything; it just makes a
+        leaked screenshot attributable.
+      </p>
+      <p>
+        Currently
+        <span class="badge <%= watermarkOn ? 'badge--ok' : 'badge--warn' %>">
+          <%= watermarkOn ? 'On' : 'Off' %>
+        </span>
+      </p>
+      <form method="post" action="/admin/settings/watermark" class="inline-form">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <button class="btn btn--sm" type="submit"><%= watermarkOn ? 'Turn off' : 'Turn on' %></button>
+      </form>
     </div>
   </div>
 </section>

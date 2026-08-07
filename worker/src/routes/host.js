@@ -55,6 +55,19 @@ const trim = (v, max = 200) => {
   return s ? s.slice(0, max) : null;
 };
 
+/**
+ * Where to send the leader/host after a save, when the caller asked for
+ * somewhere other than /host — the admin dashboard's next-session card, which
+ * posts here (the route leaders already use to move a pin for one date) but
+ * wants to land back on /admin. Same-origin relative paths only; anything
+ * else falls back to the usual /host redirect, so a host saving their own
+ * session is unaffected.
+ */
+function safeReturnTo(raw, fallback) {
+  const v = String(raw == null ? '' : raw);
+  return v.startsWith('/') && !v.startsWith('//') ? v : fallback;
+}
+
 const NOT_YOURS =
   'That session is being run by somebody else. Ask a leader if it should be you.';
 const IN_THE_PAST = 'That session has already happened — it can be read, but not changed.';
@@ -185,7 +198,7 @@ router.post('/recurring/:recurringId/:date', async (c) => {
   });
 
   flash(c, 'ok', `Saved. The front page shows your changes for ${dates.formatDate(`${ctx.date}T12:00:00Z`)}.`);
-  return c.redirect('/host', 302);
+  return c.redirect(safeReturnTo(field(body, 'return_to'), '/host'), 302);
 });
 
 /* ------------------------------------------------------ one-off meeting ---- */
@@ -263,7 +276,7 @@ router.post('/meeting/:meetingId', async (c) => {
   });
 
   flash(c, 'ok', 'Saved. The front page has your changes.');
-  return c.redirect('/host', 302);
+  return c.redirect(safeReturnTo(field(body, 'return_to'), '/host'), 302);
 });
 
 export default router;

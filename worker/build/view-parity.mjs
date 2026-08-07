@@ -173,7 +173,7 @@ const LOCALS = {
   // admin
   announcements: [ann], announcementCount: 1, backupStale: true,
   lastBackupAt: '2026-07-01T12:00:00.000Z', leaderCount: 2, memberCount: 5,
-  passcodeSet: true, watermarkOn: true, previewHtml: '<p>Preview.</p>',
+  passcodeSet: true, watermarkOn: true, previewHtml: '<p>Preview.</p>', expiringLeaderCount: 1,
   files: [{ id: 1, original_name: 'flyer.png', size: 2048 }],
   limits: {
     maxDocMb: 25, maxImageMb: 10, maxImages: 60, maxTotalMb: 150,

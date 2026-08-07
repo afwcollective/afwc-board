@@ -8,6 +8,29 @@
    same --amber token the .badge--warn text already uses. */
 .card--warn { border-top-color: var(--amber, #b57a10); }
 
+/* Task-first dashboard: shortcut tiles below the next-session card and the
+   quick headline composer. Cards double as full-tile links (Backup keeps its
+   own button instead, since a click there should download, not navigate). */
+.shortcut-grid {
+  display: grid; gap: var(--s4);
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  margin-bottom: var(--s5);
+}
+a.shortcut-card { display: block; text-decoration: none; color: inherit; }
+.shortcut-card .eyebrow { margin-top: 0; }
+.shortcut-figure {
+  font-family: var(--serif); font-weight: 700; font-size: 26px; line-height: 1;
+  color: var(--blue); margin: 4px 0;
+}
+
+/* The next-session card's inline host form sits right above the table/pin
+   form — a touch tighter than the default .form margin so the two read as
+   one control cluster instead of two unrelated sections. */
+.dash-host-form { margin-top: var(--s4); }
+.dash-host-form .form-actions { margin-top: var(--s3); }
+.dash-pin-form { margin-top: var(--s4); }
+.dash-next-grid { margin-top: var(--s3); }
+
 /* Leader handbook: plain, short sections, readable measure. */
 .handbook-section { max-width: var(--measure, 62ch); }
 .handbook-section + .handbook-section {

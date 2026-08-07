@@ -68,6 +68,19 @@ const trim = (v, max = 200) => {
   return s ? s.slice(0, max) : null;
 };
 
+/**
+ * Where to send a leader after a POST, when the caller asked for somewhere
+ * other than that route's own default landing page — e.g. the dashboard's
+ * inline host/pin forms, which want to land back on /admin instead of
+ * /admin/meetings. Same-origin relative paths only; anything else (missing,
+ * absolute URL, protocol-relative "//host") falls back to the route's usual
+ * redirect so every existing caller is unaffected.
+ */
+function safeReturnTo(raw, fallback) {
+  const v = String(raw == null ? '' : raw);
+  return v.startsWith('/') && !v.startsWith('//') ? v : fallback;
+}
+
 /** req.body, for a form that may or may not carry files. */
 const formBody = async (c) => (await getFormData(c)).fields;
 
@@ -77,12 +90,16 @@ const BACKUP_STALE_MS = 30 * 24 * 3600e3;
 
 router.get('/', async (c) => {
   const db = c.env.DB;
-  const [meeting, lastBackupAt, memberCount, leaderCount, announcementCount, passcode, watermark] =
+  const [meeting, lastBackupAt, memberOptions, memberCount, leaderCount, expiringLeaderCount, announcementCount, passcode, watermark] =
     await Promise.all([
       meetings.nextUnified(db),
       getSetting(db, 'last_backup_at', null),
+      // The next-session card's host picker needs the same active-member pool
+      // the meeting form and the weekly host-assign form already use.
+      users.listActive(db),
       users.countActive(db),
       users.countLeaders(db),
+      users.countExpiringLeaders(db, 14),
       announcements.countUpTo(db, 100),
       getSetting(db, 'group_passcode_hash'),
       getSetting(db, 'watermark_on', '1'),
@@ -94,9 +111,12 @@ router.get('/', async (c) => {
     title: 'Admin',
     bodyClass: 'page-admin',
     pageCss: ['/css/admin.css'],
+    pageJs: ['/js/map-picker.js'],
     meeting,
+    memberOptions,
     memberCount,
     leaderCount,
+    expiringLeaderCount,
     announcementCount,
     passcodeSet: !!passcode,
     watermarkOn: watermark === '1',
@@ -501,8 +521,11 @@ router.post('/meetings/:id', async (c) => {
   for (const row of stored.rows) await eventFiles.create(db, row);
 
   flash(c, 'ok', 'Meeting updated.');
-  if (wantsJson(c)) return c.json({ ok: true, id: meeting.id, redirect: '/admin/meetings' });
-  return c.redirect('/admin/meetings', 302);
+  // The dashboard's next-session card reuses this route for its host/pin form
+  // and wants to land back on /admin rather than the meetings list.
+  const back = safeReturnTo(field(fields, 'return_to'), '/admin/meetings');
+  if (wantsJson(c)) return c.json({ ok: true, id: meeting.id, redirect: back });
+  return c.redirect(back, 302);
 });
 
 router.post('/meetings/:id/cancel', async (c) => {
@@ -705,11 +728,13 @@ router.post('/recurring/:id/host', async (c) => {
   if (!rule) return notFound(c);
 
   const body = await formBody(c);
+  const back = safeReturnTo(field(body, 'return_to'), '/admin/meetings#weekly');
+
   const rawDate = String(field(body, 'local_date') || '').trim();
   const localDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : null;
   if (!localDate || dates.localDayOfWeek(localDate) !== rule.weekday) {
     flash(c, 'error', `Pick the date of the ${dates.weekdayName(rule.weekday)} you want to hand over.`);
-    return c.redirect('/admin/meetings#weekly', 302);
+    return c.redirect(back, 302);
   }
 
   const raw = String(field(body, 'user_id') || '').trim();
@@ -726,13 +751,13 @@ router.post('/recurring/:id/host', async (c) => {
         ? `${previous.display_name} is no longer hosting ${dates.formatDate(`${localDate}T12:00:00Z`)}. Any changes they made to that session are undone.`
         : 'Nobody was hosting that date.'
     );
-    return c.redirect('/admin/meetings#weekly', 302);
+    return c.redirect(back, 302);
   }
 
   const target = await users.byId(db, Number(raw));
   if (!target || !target.is_active) {
     flash(c, 'error', 'Pick an active member to host that session.');
-    return c.redirect('/admin/meetings#weekly', 302);
+    return c.redirect(back, 302);
   }
 
   await hosts.assign(db, rule.id, localDate, target.id, c.get('currentUser').id);
@@ -742,7 +767,7 @@ router.post('/recurring/:id/host', async (c) => {
     `${target.display_name} is hosting ${dates.formatDate(`${localDate}T12:00:00Z`)}. ` +
       'They can set the time, the table, the pin and a note for that one session at /host.'
   );
-  return c.redirect('/admin/meetings#weekly', 302);
+  return c.redirect(back, 302);
 });
 
 /* ---------------------------------------------------------- announcements */

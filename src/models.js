@@ -20,6 +20,15 @@ const users = {
     db
       .prepare("SELECT COUNT(*) AS n FROM users WHERE role IN ('leader','architect') AND is_active = 1")
       .get().n,
+  /** Leaders whose time-boxed term runs out within `days` days — the dashboard's nag. */
+  countExpiringLeaders: (days = 14) => {
+    const until = new Date(Date.now() + days * 24 * 3600e3).toISOString();
+    return db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM users WHERE role = 'leader' AND is_active = 1 AND role_expires_at IS NOT NULL AND role_expires_at <= ?"
+      )
+      .get(until).n;
+  },
   /** The one architect, or undefined on a board that has not run /setup yet. */
   architect: () => db.prepare("SELECT * FROM users WHERE role = 'architect' ORDER BY id LIMIT 1").get(),
   byUsername: (username) => db.prepare('SELECT * FROM users WHERE username = ?').get(String(username || '').trim()),

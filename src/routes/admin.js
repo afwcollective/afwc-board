@@ -37,6 +37,19 @@ const trim = (v, max = 200) => {
   return s ? s.slice(0, max) : null;
 };
 
+/**
+ * Where to send a leader after a POST, when the caller asked for somewhere
+ * other than that route's own default landing page — e.g. the dashboard's
+ * inline host/pin forms, which want to land back on /admin instead of
+ * /admin/meetings. Same-origin relative paths only; anything else (missing,
+ * absolute URL, protocol-relative "//host") falls back to the route's usual
+ * redirect so every existing caller is unaffected.
+ */
+function safeReturnTo(raw, fallback) {
+  const v = String(raw == null ? '' : raw);
+  return v.startsWith('/') && !v.startsWith('//') ? v : fallback;
+}
+
 /* -------------------------------------------------------------- dashboard */
 
 const BACKUP_STALE_MS = 30 * 24 * 3600e3;
@@ -49,9 +62,14 @@ router.get('/', (req, res) => {
     title: 'Admin',
     bodyClass: 'page-admin',
     pageCss: ['/css/admin.css'],
+    pageJs: ['/js/map-picker.js'],
     meeting: next,
+    // The next-session card's host picker needs the same active-member pool
+    // the meeting form and the weekly host-assign form already use.
+    memberOptions: users.listActive(),
     memberCount: users.countActive(),
     leaderCount: users.countLeaders(),
+    expiringLeaderCount: users.countExpiringLeaders(14),
     announcementCount: announcements.list(100).length,
     passcodeSet: !!getSetting('group_passcode_hash'),
     watermarkOn: getSetting('watermark_on', '1') === '1',
@@ -425,8 +443,11 @@ router.post('/meetings/:id', acceptAttachments, (req, res, next) => {
   for (const row of stored.rows) eventFiles.create(row);
 
   flash(res, 'ok', 'Meeting updated.');
-  if (wantsJson(req)) return res.json({ ok: true, id: meeting.id, redirect: '/admin/meetings' });
-  return res.redirect('/admin/meetings');
+  // The dashboard's next-session card reuses this route for its host/pin form
+  // and wants to land back on /admin rather than the meetings list.
+  const back = safeReturnTo(req.body.return_to, '/admin/meetings');
+  if (wantsJson(req)) return res.json({ ok: true, id: meeting.id, redirect: back });
+  return res.redirect(back);
 });
 
 router.post('/meetings/:id/cancel', (req, res, next) => {
@@ -614,12 +635,14 @@ router.post('/recurring/:id/host', (req, res, next) => {
   const rule = recurring.byId(req.params.id);
   if (!rule) return next();
 
+  const back = safeReturnTo(req.body.return_to, '/admin/meetings#weekly');
+
   const localDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body.local_date || '').trim())
     ? String(req.body.local_date).trim()
     : null;
   if (!localDate || dates.localDayOfWeek(localDate) !== rule.weekday) {
     flash(res, 'error', `Pick the date of the ${dates.weekdayName(rule.weekday)} you want to hand over.`);
-    return res.redirect('/admin/meetings#weekly');
+    return res.redirect(back);
   }
 
   const raw = String(req.body.user_id || '').trim();
@@ -636,13 +659,13 @@ router.post('/recurring/:id/host', (req, res, next) => {
         ? `${previous.display_name} is no longer hosting ${dates.formatDate(`${localDate}T12:00:00Z`)}. Any changes they made to that session are undone.`
         : 'Nobody was hosting that date.'
     );
-    return res.redirect('/admin/meetings#weekly');
+    return res.redirect(back);
   }
 
   const target = users.byId(Number(raw));
   if (!target || !target.is_active) {
     flash(res, 'error', 'Pick an active member to host that session.');
-    return res.redirect('/admin/meetings#weekly');
+    return res.redirect(back);
   }
 
   hosts.assign(rule.id, localDate, target.id, req.user.id);
@@ -652,7 +675,7 @@ router.post('/recurring/:id/host', (req, res, next) => {
     `${target.display_name} is hosting ${dates.formatDate(`${localDate}T12:00:00Z`)}. ` +
       'They can set the time, the table, the pin and a note for that one session at /host.'
   );
-  return res.redirect('/admin/meetings#weekly');
+  return res.redirect(back);
 });
 
 /* ---------------------------------------------------------- announcements */
