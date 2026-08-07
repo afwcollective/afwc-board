@@ -91,6 +91,17 @@ const LOCALS = {
   weekly: [rule], aboutHtml: '<p>About.</p>',
   pinnedAnnouncements: [ann], recentAnnouncements: [{ ...ann, is_pinned: 0 }],
   specialEvents: [{ ...meeting, is_recurring: false, kind: 'offsite', address: '1 Main St' }],
+  quoteOfDay: {
+    id: 1, text: 'Not all those who wander are lost', attribution: 'J.R.R. Tolkien',
+    source_note: 'The Fellowship of the Ring', is_active: 1, sort_order: 0,
+  },
+  recentDrafts: [
+    { id: 3, title: 'Chapter One', kind: 'docx', created_at: '2026-08-01T12:00:00.000Z', uploader_name: 'Brian' },
+    { id: 4, title: 'The Long Way Down', kind: 'pdf', created_at: '2026-07-30T12:00:00.000Z', uploader_name: 'Dana' },
+    { id: 5, title: 'Panels', kind: 'images', created_at: '2026-07-29T12:00:00.000Z', uploader_name: 'Walt' },
+  ],
+  recentDraftCount: 3,
+  draftKindLabel: { docx: 'Word', pdf: 'PDF', text: 'Text', images: 'Graphic novel' },
   // forms
   errors: ['Something went wrong.', 'And another.'],
   values: { username: 'dana', display_name: 'Dana', email: 'd@example.com' },
@@ -107,6 +118,12 @@ const LOCALS = {
   limits: { maxDocMb: 25, maxImageMb: 10, maxImages: 60, maxTotalMb: 150 },
   memberOptions: [person], upcoming: [meeting], past: [meeting],
   rules: [{ ...rule, skips: [{ id: 1, recurring_id: 1, skip_date: '2026-08-22' }], skipDefault: '2026-08-22', hosts: [{ id: 1, local_date: '2026-08-15', user_id: 2, display_name: 'Dana' }], nextDates: ['2026-08-15'], hostDates: [{ local_date: '2026-08-15', starts_at: '2026-08-15T17:00:00.000Z', host: { display_name: 'Dana' } }] }],
+  quotes: [
+    { id: 1, text: 'Not all those who wander are lost', attribution: 'J.R.R. Tolkien',
+      source_note: 'The Fellowship of the Ring', is_active: 1, sort_order: 0 },
+    { id: 2, text: 'Write drunk, edit sober', attribution: 'Nobody, actually',
+      source_note: null, is_active: 0, sort_order: 5 },
+  ],
   people: [person], termOptions: [{ value: '30', label: '30 days' }],
   todayLocal: '2026-08-07', transferCandidates: [person],
   weekdays: nodeDates.weekdayNames(), rule,

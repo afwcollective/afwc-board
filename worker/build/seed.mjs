@@ -79,6 +79,23 @@ const RULES = [
   },
 ];
 
+/**
+ * The starter quote for the landing rail. worker/src/models.js seeds the same
+ * row on first read (quotes.ensureSeed); putting it here too means a freshly
+ * seeded local board has it before anything is rendered, and the "matched on
+ * text" guard keeps a re-seed from duplicating it or resurrecting one a leader
+ * deliberately deleted... except that a deleted seed WOULD come back on the
+ * next re-seed. That is the same bargain the accounts make: this file exists to
+ * make the documented dev fixtures true, and local edits to fixture rows are
+ * not precious.
+ */
+const QUOTE = {
+  text: 'Not all those who wander are lost',
+  attribution: 'J.R.R. Tolkien',
+  source_note: 'The Fellowship of the Ring',
+  sort_order: 0,
+};
+
 const ANNOUNCEMENT = {
   title: 'The board is open',
   body_md: `This is where meeting times, the table we're sitting at and the drafts live.
@@ -152,6 +169,27 @@ async function main() {
       WHERE NOT EXISTS (
         SELECT 1 FROM announcements WHERE title = ${q(ANNOUNCEMENT.title)} AND deleted_at IS NULL
       );`
+  );
+
+  /* the landing page's quote rail — matched on text */
+  lines.push(
+    `INSERT INTO quotes (text, attribution, source_note, is_active, sort_order, created_by)
+     SELECT ${q(QUOTE.text)}, ${q(QUOTE.attribution)}, ${q(QUOTE.source_note)}, 1, ${QUOTE.sort_order},
+            (SELECT id FROM users WHERE username = 'brian')
+      WHERE NOT EXISTS (SELECT 1 FROM quotes WHERE text = ${q(QUOTE.text)});`
+  );
+
+  /* #general — the one channel every active member is in by construction (see
+     worker/migrations/0002_quotes_chat.sql). The chat routes land in a later
+     phase; the row is seeded now so those phases, and anyone poking at the
+     local database before then, inherit a board that already has it. There is
+     exactly one 'general' row, ever, so the guard is on the kind. */
+  lines.push(
+    `INSERT INTO chat_channels (kind, name, description, created_by)
+     SELECT 'general', 'general',
+            'Everyone in the collective. Announcements, questions, and whatever else the group is talking about.',
+            NULL
+      WHERE NOT EXISTS (SELECT 1 FROM chat_channels WHERE kind = 'general');`
   );
 
   const sqlFile = path.join(os.tmpdir(), `afwc-seed-${process.pid}.sql`);

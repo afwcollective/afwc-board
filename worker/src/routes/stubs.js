@@ -11,17 +11,17 @@
  * Each router keeps the guard the Express original has today:
  *   /board    requireMember          (src/routes/board.js: router.use(requireMember))
  *   /drafts   requireMember
- *   /account  requireMember
- *   /host     requireMember          (per-occurrence checks are inside, P2)
- *   /admin    requireLeader          (leader or architect)
  *   /timer    requireMember + isLeader||isHost  (src/routes/timer.js)
  *
  * A phase that replaces one of these deletes its block here and mounts the real
- * router in worker/src/index.js in the same slot.
+ * router in worker/src/index.js in the same slot. P2 did exactly that for
+ * /admin, /host and /account (worker/src/routes/admin.js, host.js, account.js);
+ * what is left below is P3's board, P4's drafts, and the timer page that comes
+ * across with them.
  */
 
 import { Hono } from 'hono';
-import { requireMember, requireLeader, HttpError } from '../auth/middleware.js';
+import { requireMember, HttpError } from '../auth/middleware.js';
 import { render } from '../render.js';
 
 function comingSoon(c, { title, eyebrow, heading, blurb }) {
@@ -57,44 +57,6 @@ draftsRouter.get('/', (c) =>
     heading: 'The draft library',
     blurb:
       'Upload a chapter as .docx, .pdf, images or plain text and it becomes a page-turner in the browser, with comments on every page. Lands in P4, once uploads stream to R2.',
-  })
-);
-
-/* ------------------------------------------------------------------ /admin */
-export const adminRouter = new Hono();
-adminRouter.use('*', requireLeader);
-adminRouter.get('/', (c) =>
-  comingSoon(c, {
-    title: 'Admin',
-    eyebrow: 'Leaders · Console',
-    heading: 'The admin console',
-    blurb:
-      'Meetings, weekly rules, hosts, announcements, the group passcode and the members table all move across in P2.',
-  })
-);
-
-/* ------------------------------------------------------------------- /host */
-export const hostRouter = new Hono();
-hostRouter.use('*', requireMember);
-hostRouter.get('/', (c) =>
-  comingSoon(c, {
-    title: 'Hosting',
-    eyebrow: 'Members · Running a session',
-    heading: "The sessions you're hosting",
-    blurb:
-      'Your next 30 days of assignments, and the handful of things a host may change about one session, arrive with the meetings port in P2.',
-  })
-);
-
-/* ---------------------------------------------------------------- /account */
-export const accountRouter = new Hono();
-accountRouter.use('*', requireMember);
-accountRouter.get('/', (c) =>
-  comingSoon(c, {
-    title: 'Your account',
-    eyebrow: 'Members · You',
-    heading: 'Your account',
-    blurb: 'Changing your password from here comes across with the members admin in P5.',
   })
 );
 

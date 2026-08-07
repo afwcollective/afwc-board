@@ -26,8 +26,15 @@ database_id = "00000000-0000-0000-0000-000000000000" # placeholder until the acc
 migrations_dir = "migrations"
 
 # ------------------------------------------------------------------- files --
-# Draft originals and off-site event attachments (P4). Keys keep the same shape
-# the Express app used on disk: uploads/drafts/<id>/… and uploads/events/<id>/…
+# Off-site event attachments (P2) and draft originals/page images (P4). Keys
+# mirror the shape the Express app used on disk, minus the "uploads/" segment
+# that only existed to keep them out of the rest of DATA_DIR — a bucket has no
+# rest. One prefix per kind of thing:
+#     events/<meetingId>/<stored_name>     worker/src/services/events/attachments.js
+#     drafts/<draftId>/…                   P4, same helper shape
+# Keys are always BUILT from a validated id plus a name the app generated; see
+# the pattern notes at the top of that attachments module. The bucket has no
+# public hostname — every byte leaves through an authorized Worker route.
 [[r2_buckets]]
 binding = "FILES"
 bucket_name = "afwc-board-files"

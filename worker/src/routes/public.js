@@ -8,7 +8,7 @@
  */
 
 import { Hono } from 'hono';
-import { meetings, recurring, announcements, eventFiles, about } from '../models.js';
+import { meetings, recurring, announcements, eventFiles, about, quotes, drafts } from '../models.js';
 import { noUsersYet } from '../auth/middleware.js';
 import { mdToHtml, toPlainText } from '../util/sanitize.js';
 import { render } from '../render.js';
@@ -17,6 +17,12 @@ import { render } from '../render.js';
 const RECENT_ANNOUNCEMENT_COUNT = 6;
 /** How many special events the landing page lists before it would need paging. */
 const SPECIAL_EVENT_COUNT = 20;
+/** Featured cell + this many smaller cells in the "fresh pages" window. */
+const FRESH_DRAFT_COUNT = 3;
+
+/** Mirrors the drafts router's KIND_LABEL — kept local rather than shared
+    across routers, same convention as everything else in that file. */
+const DRAFT_KIND_LABEL = { docx: 'Word', pdf: 'PDF', text: 'Text', images: 'Graphic novel' };
 
 const router = new Hono();
 
@@ -66,6 +72,21 @@ router.get('/', async (c) => {
   const specialRaw = firstRun ? [] : await meetings.upcomingSpecial(db, SPECIAL_EVENT_COUNT, excludeId);
   const specialEvents = signedIn ? specialRaw : specialRaw.map(meetings.publicSafe);
 
+  /*
+   * Quote rail: one deterministic pick, same for every visitor today. Null
+   * (nothing active, or a first-run board) just means the section is skipped
+   * — quotes.ofDay already returns null rather than throwing.
+   */
+  const quoteOfDay = firstRun ? null : await quotes.ofDay(db);
+
+  /*
+   * "Fresh pages": members see the real thing (title, author, date, kind),
+   * a logged-out visitor sees only a count — no titles, no names. Both reads
+   * are READY, non-deleted drafts only, same rule the library itself uses.
+   */
+  const recentDrafts = !firstRun && signedIn ? await drafts.recent(db, FRESH_DRAFT_COUNT) : [];
+  const recentDraftCount = !firstRun && !signedIn ? await drafts.countAll(db) : 0;
+
   return render(c, 'home', {
     title: null, // layout falls back to the site name
     bodyClass: 'page-home',
@@ -78,6 +99,10 @@ router.get('/', async (c) => {
     pinnedAnnouncements,
     recentAnnouncements,
     specialEvents,
+    quoteOfDay,
+    recentDrafts,
+    recentDraftCount,
+    draftKindLabel: DRAFT_KIND_LABEL,
     pageJs: [],
   });
 });

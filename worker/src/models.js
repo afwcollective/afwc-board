@@ -686,6 +686,21 @@ export const announcements = {
       limit
     ),
   byId: (db, id) => one(db, 'SELECT * FROM announcements WHERE id = ? AND deleted_at IS NULL', id),
+
+  /**
+   * How many live announcements there are, capped — the admin dashboard's stat
+   * tile. The Express version read `announcements.list(100).length`, which
+   * fetched a hundred rows (body_html and all) to report a number; the LIMIT is
+   * kept inside the subquery so the answer is identical while the row cost is
+   * not paid on a page that only prints it.
+   */
+  countUpTo: async (db, limit = 100) =>
+    (await one(
+      db,
+      'SELECT COUNT(*) AS n FROM (SELECT 1 FROM announcements WHERE deleted_at IS NULL LIMIT ?)',
+      limit
+    )).n,
+
   create: (db, a) =>
     run(
       db,
@@ -723,15 +738,18 @@ export const announcements = {
 
 const ABOUT_KEY = 'about_md';
 
-export const ABOUT_DEFAULT_MD = `The Agile Fiction Writers Collective is a Baltimore fiction-writers' group that
-meets at R. House in Remington for timed writing sprints — write for a stretch,
-stop, talk about it, go again. All genres and formats are welcome: novels,
-short stories, screenplays, even graphic novels. Bring a laptop, a notebook,
-whatever gets words down.
+export const ABOUT_DEFAULT_MD = `The Agile Fiction Writers Collective is a Baltimore fiction-writers' group
+built around timed writing sprints. We meet at R. House in Remington, sit down
+together, and write — for a stretch, then stop, talk about how it went, and go
+again. Everyone works on their own project; there's no assigned reading and no
+round-robin critique.
 
-We grew out of a Meetup group and kept the informal, drop-in spirit: there's
-no submission process and no obligation to share what you wrote. New writers
-are welcome any week — just show up.`;
+All genres and formats are welcome: novels, short stories, screenplays, even
+graphic novels. Bring a laptop, a notebook, whatever gets the words down.
+
+We grew out of a Meetup group and kept the informal, drop-in spirit. Sharing a
+draft is a door, not a requirement — open it in the library whenever a piece
+feels ready, never before. New writers are welcome any week; just show up.`;
 
 export const about = {
   /** The current markdown, seeding the default on first read. */
@@ -742,4 +760,130 @@ export const about = {
     return ABOUT_DEFAULT_MD;
   },
   setMd: (db, md) => setSetting(db, ABOUT_KEY, md),
+};
+
+/* ---------------- quotes (leader-adjustable landing quote rail) ---------------- *
+ *
+ * A handful of short quotes a leader curates from /admin/quotes. One shows on
+ * the landing page at a time — see quotes.ofDay below — picked the same way
+ * for everyone on a given day so it reads as a single daily moment rather
+ * than a per-visitor random draw.
+ *
+ * Table added by worker/migrations/0002_quotes_chat.sql (src/migrations/006).
+ */
+
+const QUOTE_SEED = {
+  text: 'Not all those who wander are lost',
+  attribution: 'J.R.R. Tolkien',
+  source_note: 'The Fellowship of the Ring',
+};
+
+/**
+ * Baltimore-local day-of-year (0-indexed), so the rotation flips over at
+ * local midnight rather than UTC midnight — consistent with how every other
+ * "today" in this app is decided (worker/src/util/dates.js's localDateKey).
+ */
+function localDayOfYear(when) {
+  const key = dates.localDateKey(when);
+  const [y, m, d] = key.split('-').map(Number);
+  const start = Date.UTC(y, 0, 1);
+  const cur = Date.UTC(y, m - 1, d);
+  return Math.floor((cur - start) / 86400000);
+}
+
+export const quotes = {
+  /**
+   * Idempotent bootstrap, same shape as about.getMd: insert the one starter
+   * quote ONLY when the table is empty, so a leader's own edits (including
+   * deleting the seed) are never clobbered by a later request. The dev seed
+   * script writes the same row up front, so on a seeded board this is a single
+   * COUNT and no write at all.
+   */
+  ensureSeed: async (db) => {
+    const row = await one(db, 'SELECT COUNT(*) AS n FROM quotes');
+    if (row && row.n > 0) return false;
+    await quotes.create(db, {
+      text: QUOTE_SEED.text,
+      attribution: QUOTE_SEED.attribution,
+      source_note: QUOTE_SEED.source_note,
+      is_active: 1,
+      sort_order: 0,
+      created_by: null,
+    });
+    return true;
+  },
+
+  /** Every quote, active or not — what /admin/quotes lists. */
+  list: async (db) => {
+    await quotes.ensureSeed(db);
+    return all(db, 'SELECT * FROM quotes ORDER BY sort_order ASC, id ASC');
+  },
+
+  /** Active quotes only, in display order — the rotation pool. */
+  active: async (db) => {
+    await quotes.ensureSeed(db);
+    return all(db, 'SELECT * FROM quotes WHERE is_active = 1 ORDER BY sort_order ASC, id ASC');
+  },
+
+  byId: (db, id) => one(db, 'SELECT * FROM quotes WHERE id = ?', id),
+
+  create: (db, q) =>
+    run(
+      db,
+      `INSERT INTO quotes (text, attribution, source_note, is_active, sort_order, created_by)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      q.text, q.attribution, q.source_note, q.is_active, q.sort_order, q.created_by
+    ),
+
+  update: (db, q) =>
+    run(
+      db,
+      `UPDATE quotes SET text = ?, attribution = ?, source_note = ?, sort_order = ?
+        WHERE id = ?`,
+      q.text, q.attribution, q.source_note, q.sort_order, q.id
+    ),
+
+  setActive: (db, id, active) =>
+    run(db, 'UPDATE quotes SET is_active = ? WHERE id = ?', active ? 1 : 0, id),
+
+  remove: (db, id) => run(db, 'DELETE FROM quotes WHERE id = ?', id),
+
+  /**
+   * The landing page's quote of the day: a deterministic pick among active
+   * quotes, indexed by day-of-year modulo the pool size, so every visitor
+   * sees the same one on the same day and it steps forward on its own with
+   * no scheduler and no JS. Null when nothing is active — the landing page
+   * renders no quote section at all rather than an empty one.
+   */
+  ofDay: async (db, when = new Date()) => {
+    const pool = await quotes.active(db);
+    if (!pool.length) return null;
+    return pool[localDayOfYear(when) % pool.length];
+  },
+};
+
+/* ---------------- drafts (cross-router reads only) ---------------- *
+ *
+ * The library query, upload and moderation stay route-local and land in P4.
+ * The landing page needs two small reads that belong to no single router: a
+ * members-only "fresh pages" preview and a logged-out teaser count that leaks
+ * nothing but a number. Both are READY, non-deleted drafts only — a
+ * still-converting or failed upload is not "shared" yet.
+ */
+
+export const drafts = {
+  /** Newest ready drafts, newest first — the landing page's members-only preview. */
+  recent: (db, limit = 3) =>
+    all(
+      db,
+      `SELECT d.id, d.title, d.kind, d.created_at, u.display_name AS uploader_name
+         FROM drafts d JOIN users u ON u.id = d.user_id
+        WHERE d.deleted_at IS NULL AND d.status = 'ready'
+        ORDER BY d.created_at DESC LIMIT ?`,
+      limit
+    ),
+
+  /** Count of ready drafts — the logged-out teaser's number. No titles, no names. */
+  countAll: async (db) =>
+    (await one(db, `SELECT COUNT(*) AS n FROM drafts WHERE deleted_at IS NULL AND status = 'ready'`)).n,
 };

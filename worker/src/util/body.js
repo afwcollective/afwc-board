@@ -67,3 +67,49 @@ export function field(body, name) {
   const v = body ? body[name] : undefined;
   return Array.isArray(v) ? v[0] : v;
 }
+
+/**
+ * The body of a form that MAY carry files — the off-site event form here, the
+ * draft uploader in P4. Returns { fields, files }:
+ *
+ *   fields  the same plain object getBody() produces (repeated keys → arrays)
+ *   files   { <input name>: File[] } — always arrays, empty when nothing came
+ *
+ * urlencoded submits take the cached path, so a route can call this
+ * unconditionally and never care which shape arrived. A MULTIPART body is read
+ * HERE, in the route, on a stream checkCsrf deliberately left untouched (see
+ * the note at the top of this file) — and cached, because a Worker request body
+ * can only be read once.
+ *
+ * An <input type="file"> the user never picked anything for still posts an
+ * empty, nameless part; it is dropped here rather than surfacing to the route
+ * as a zero-byte attachment nobody asked for.
+ */
+export async function getFormData(c) {
+  if (!isMultipart(c)) return { fields: await getBody(c), files: {} };
+
+  const cached = c.get('parsedMultipart');
+  if (cached) return cached;
+
+  const raw = await c.req.parseBody({ all: true });
+  const fields = {};
+  const files = {};
+
+  for (const [name, value] of Object.entries(raw)) {
+    for (const item of Array.isArray(value) ? value : [value]) {
+      const isFile = item && typeof item === 'object' && typeof item.arrayBuffer === 'function';
+      if (isFile) {
+        if (!item.name && item.size === 0) continue;
+        (files[name] = files[name] || []).push(item);
+      } else if (name in fields) {
+        fields[name] = Array.isArray(fields[name]) ? [...fields[name], item] : [fields[name], item];
+      } else {
+        fields[name] = item;
+      }
+    }
+  }
+
+  const parsed = { fields, files };
+  c.set('parsedMultipart', parsed);
+  return parsed;
+}

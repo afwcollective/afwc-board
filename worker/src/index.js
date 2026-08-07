@@ -26,14 +26,11 @@ import { loadUser, checkCsrf } from './auth/middleware.js';
 import { notFound, errorPage } from './routes/errors.js';
 import publicRouter from './routes/public.js';
 import authRouter from './routes/auth.js';
-import {
-  boardRouter,
-  draftsRouter,
-  adminRouter,
-  hostRouter,
-  accountRouter,
-  timerRouter,
-} from './routes/stubs.js';
+import accountRouter from './routes/account.js';
+import adminRouter from './routes/admin.js';
+import eventsRouter from './routes/events.js';
+import hostRouter from './routes/host.js';
+import { boardRouter, draftsRouter, timerRouter } from './routes/stubs.js';
 
 const app = new Hono();
 
@@ -77,8 +74,10 @@ app.use('*', async (c, next) => {
  * express.static(public/), as Workers Assets.
  *
  * Only file-shaped paths are offered to the assets binding — a last segment with
- * a dot in it. No route in this app has an extension, so this costs routed
- * requests nothing and keeps a missing /css/typo.css answering 404 from the
+ * a dot in it. Exactly one route in this app is shaped like a file
+ * (/admin/backup.zip, whose name is what the browser saves), and it falls
+ * through here on the assets layer's 404 like any other miss; nothing else pays
+ * a lookup. Keeping the check means a missing /css/typo.css answers 404 from the
  * assets layer rather than falling through to the HTML 404 page. A response from
  * the binding is rebuilt so the security headers above can be written onto it;
  * headers set with c.header() are only merged into responses this Worker
@@ -114,6 +113,7 @@ app.route('/account', accountRouter);
 app.route('/admin', adminRouter);
 app.route('/board', boardRouter);
 app.route('/drafts', draftsRouter);
+app.route('/events', eventsRouter);
 app.route('/host', hostRouter);
 app.route('/timer', timerRouter);
 
