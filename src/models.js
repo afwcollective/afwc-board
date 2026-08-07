@@ -691,15 +691,18 @@ const announcements = {
 
 const ABOUT_KEY = 'about_md';
 
-const ABOUT_DEFAULT_MD = `The Agile Fiction Writers Collective is a Baltimore fiction-writers' group that
-meets at R. House in Remington for timed writing sprints — write for a stretch,
-stop, talk about it, go again. All genres and formats are welcome: novels,
-short stories, screenplays, even graphic novels. Bring a laptop, a notebook,
-whatever gets words down.
+const ABOUT_DEFAULT_MD = `The Agile Fiction Writers Collective is a Baltimore fiction-writers' group
+built around timed writing sprints. We meet at R. House in Remington, sit down
+together, and write — for a stretch, then stop, talk about how it went, and go
+again. Everyone works on their own project; there's no assigned reading and no
+round-robin critique.
 
-We grew out of a Meetup group and kept the informal, drop-in spirit: there's
-no submission process and no obligation to share what you wrote. New writers
-are welcome any week — just show up.`;
+All genres and formats are welcome: novels, short stories, screenplays, even
+graphic novels. Bring a laptop, a notebook, whatever gets the words down.
+
+We grew out of a Meetup group and kept the informal, drop-in spirit. Sharing a
+draft is a door, not a requirement — open it in the library whenever a piece
+feels ready, never before. New writers are welcome any week; just show up.`;
 
 const about = {
   /** The current markdown, seeding the default on first read. */
@@ -712,4 +715,126 @@ const about = {
   setMd: (md) => setSetting(ABOUT_KEY, md),
 };
 
-module.exports = { users, meetings, recurring, announcements, hosts, eventFiles, about };
+/* ---------------- quotes (leader-adjustable landing quote rail) ---------------- *
+ *
+ * A handful of short quotes a leader curates from /admin/quotes. One shows on
+ * the landing page at a time — see quotes.ofDay below — picked the same way
+ * for everyone on a given day so it reads as a single daily moment rather
+ * than a per-visitor random draw.
+ */
+
+const QUOTE_SEED = {
+  text: 'Not all those who wander are lost',
+  attribution: 'J.R.R. Tolkien',
+  source_note: 'The Fellowship of the Ring',
+};
+
+/**
+ * Baltimore-local day-of-year (0-indexed), so the rotation flips over at
+ * local midnight rather than UTC midnight — consistent with how every other
+ * "today" in this app is decided (src/util/dates.js's localDateKey).
+ */
+function localDayOfYear(when) {
+  const key = dates.localDateKey(when);
+  const [y, m, d] = key.split('-').map(Number);
+  const start = Date.UTC(y, 0, 1);
+  const cur = Date.UTC(y, m - 1, d);
+  return Math.floor((cur - start) / 86400000);
+}
+
+const quotes = {
+  /**
+   * Idempotent bootstrap, same shape as about.getMd: insert the one starter
+   * quote ONLY when the table is empty, so a leader's own edits (including
+   * deleting the seed) are never clobbered by a later boot or request.
+   */
+  ensureSeed: () => {
+    const { n } = db.prepare('SELECT COUNT(*) AS n FROM quotes').get();
+    if (n > 0) return false;
+    quotes.create({
+      text: QUOTE_SEED.text,
+      attribution: QUOTE_SEED.attribution,
+      source_note: QUOTE_SEED.source_note,
+      is_active: 1,
+      sort_order: 0,
+      created_by: null,
+    });
+    return true;
+  },
+
+  /** Every quote, active or not — what /admin/quotes lists. */
+  list: () => {
+    quotes.ensureSeed();
+    return db.prepare('SELECT * FROM quotes ORDER BY sort_order ASC, id ASC').all();
+  },
+
+  /** Active quotes only, in display order — the rotation pool. */
+  active: () => {
+    quotes.ensureSeed();
+    return db.prepare('SELECT * FROM quotes WHERE is_active = 1 ORDER BY sort_order ASC, id ASC').all();
+  },
+
+  byId: (id) => db.prepare('SELECT * FROM quotes WHERE id = ?').get(id),
+
+  create: (q) =>
+    db
+      .prepare(
+        `INSERT INTO quotes (text, attribution, source_note, is_active, sort_order, created_by)
+         VALUES (@text, @attribution, @source_note, @is_active, @sort_order, @created_by)`
+      )
+      .run(q),
+
+  update: (q) =>
+    db
+      .prepare(
+        `UPDATE quotes SET text = @text, attribution = @attribution, source_note = @source_note,
+                sort_order = @sort_order
+          WHERE id = @id`
+      )
+      .run(q),
+
+  setActive: (id, active) => db.prepare('UPDATE quotes SET is_active = ? WHERE id = ?').run(active ? 1 : 0, id),
+
+  remove: (id) => db.prepare('DELETE FROM quotes WHERE id = ?').run(id),
+
+  /**
+   * The landing page's quote of the day: a deterministic pick among active
+   * quotes, indexed by day-of-year modulo the pool size, so every visitor
+   * sees the same one on the same day and it steps forward on its own with
+   * no scheduler and no JS. Null when nothing is active — the landing page
+   * renders no quote section at all rather than an empty one.
+   */
+  ofDay: (when = new Date()) => {
+    const pool = quotes.active();
+    if (!pool.length) return null;
+    return pool[localDayOfYear(when) % pool.length];
+  },
+};
+
+/* ---------------- drafts (cross-router reads only — see src/routes/drafts.js
+   for the library query, upload and moderation, which stay route-local) ---------------- *
+ *
+ * The landing page needs two small reads that belong to no single router:
+ * a members-only "fresh pages" preview and a logged-out teaser count that
+ * leaks nothing but a number. Both are READY, non-deleted drafts only — a
+ * still-converting or failed upload is not "shared" yet.
+ */
+
+const drafts = {
+  /** Newest ready drafts, newest first — the landing page's members-only preview. */
+  recent: (limit = 3) =>
+    db
+      .prepare(
+        `SELECT d.id, d.title, d.kind, d.created_at, u.display_name AS uploader_name
+           FROM drafts d JOIN users u ON u.id = d.user_id
+          WHERE d.deleted_at IS NULL AND d.status = 'ready'
+          ORDER BY d.created_at DESC LIMIT ?`
+      )
+      .all(limit),
+
+  /** Count of ready drafts — the logged-out teaser's number. No titles, no names. */
+  countAll: () =>
+    db.prepare(`SELECT COUNT(*) AS n FROM drafts WHERE deleted_at IS NULL AND status = 'ready'`).get().n,
+};
+
+module.exports = { users, meetings, recurring, announcements, hosts, eventFiles, about, quotes, drafts };

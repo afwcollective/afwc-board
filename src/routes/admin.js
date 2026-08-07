@@ -6,7 +6,7 @@ const crypto = require('node:crypto');
 const multer = require('multer');
 
 const { db, getSetting, setSetting } = require('../db');
-const { users, meetings, recurring, announcements, hosts, eventFiles, about } = require('../models');
+const { users, meetings, recurring, announcements, hosts, eventFiles, about, quotes } = require('../models');
 const attachments = require('../services/events/attachments');
 const { TMP_DIR } = require('../services/ingest/paths');
 const { requireLeader, requireArchitect } = require('../auth/middleware');
@@ -795,6 +795,105 @@ router.post('/about', (req, res) => {
   about.setMd(body_md);
   flash(res, 'ok', 'About text updated. The front page reflects it now.');
   return res.redirect('/admin/about');
+});
+
+/* --------------------------------------------------------------- quotes */
+
+/*
+ * The landing page's quote rail — a handful of short quotes a leader curates
+ * here. Same shape as announcements: a form up top, the list underneath, one
+ * row per quote. Reordering is a plain number input on each row (sort_order)
+ * rather than drag-and-drop — a handful of quotes doesn't need more than
+ * that, and it needs no JS to work.
+ */
+
+const QUOTE_TEXT_MAX = 200;
+
+function readQuoteForm(body) {
+  const values = {
+    text: trim(body.text, QUOTE_TEXT_MAX) || '',
+    attribution: trim(body.attribution, 140) || '',
+    source_note: trim(body.source_note, 140) || '',
+    sort_order: Number.isFinite(Number(body.sort_order)) ? Math.trunc(Number(body.sort_order)) : 0,
+  };
+  const errors = [];
+  if (!values.text) errors.push('Write the quote itself — keep it to a line or two.');
+  if (!values.attribution) errors.push('Who said it? Attribution is required.');
+  return { values, errors };
+}
+
+router.get('/quotes', (req, res) => {
+  res.render('admin/quotes', {
+    title: 'Quote rail',
+    bodyClass: 'page-admin',
+    quotes: quotes.list(),
+    values: { text: '', attribution: '', source_note: '', sort_order: 0 },
+    errors: [],
+  });
+});
+
+router.post('/quotes', (req, res) => {
+  const { values, errors } = readQuoteForm(req.body || {});
+  if (errors.length) {
+    return res.status(400).render('admin/quotes', {
+      title: 'Quote rail',
+      bodyClass: 'page-admin',
+      quotes: quotes.list(),
+      values,
+      errors,
+    });
+  }
+  quotes.create({
+    text: values.text,
+    attribution: values.attribution,
+    source_note: values.source_note || null,
+    is_active: 1,
+    sort_order: values.sort_order,
+    created_by: req.user.id,
+  });
+  flash(res, 'ok', 'Quote added. It joins the daily rotation on the front page.');
+  return res.redirect('/admin/quotes');
+});
+
+router.post('/quotes/:id', (req, res, next) => {
+  const quote = quotes.byId(req.params.id);
+  if (!quote) return next();
+  const { values, errors } = readQuoteForm(req.body || {});
+  if (errors.length) {
+    return res.status(400).render('admin/quotes', {
+      title: 'Quote rail',
+      bodyClass: 'page-admin',
+      quotes: quotes.list(),
+      values,
+      errors,
+    });
+  }
+  quotes.update({
+    id: quote.id,
+    text: values.text,
+    attribution: values.attribution,
+    source_note: values.source_note || null,
+    sort_order: values.sort_order,
+  });
+  flash(res, 'ok', 'Quote updated.');
+  return res.redirect('/admin/quotes');
+});
+
+router.post('/quotes/:id/toggle', (req, res, next) => {
+  const quote = quotes.byId(req.params.id);
+  if (!quote) return next();
+  const activate = quote.is_active ? 0 : 1;
+  quotes.setActive(quote.id, activate);
+  flash(res, 'info', activate ? 'Quote reactivated — back in the rotation.' : 'Quote deactivated — no longer shown.');
+  return res.redirect('/admin/quotes');
+});
+
+router.post('/quotes/:id/delete', (req, res, next) => {
+  const quote = quotes.byId(req.params.id);
+  if (!quote) return next();
+  quotes.remove(quote.id);
+  flash(res, 'info', 'Quote removed.');
+  return res.redirect('/admin/quotes');
 });
 
 /* --------------------------------------------------------------- passcode */

@@ -1,0 +1,103 @@
+<section class="section">
+  <div class="wrap">
+    <p class="eyebrow">Leaders only</p>
+    <h1>Quote rail</h1>
+    <p class="lede measure">
+      One of these shows on the front page at a time — the same one for
+      everyone, all day, picked automatically. Keep quotes short — a line or
+      two with attribution.
+    </p>
+
+    <%- include('../partials/form-errors', { errors: errors }) %>
+
+    <form method="post" action="/admin/quotes" class="form card card--form">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+      <div class="field">
+        <label for="text">Quote</label>
+        <textarea id="text" name="text" rows="2" required maxlength="200"><%= values.text %></textarea>
+      </div>
+
+      <div class="field">
+        <label for="attribution">Attribution</label>
+        <input id="attribution" name="attribution" type="text" required maxlength="140" value="<%= values.attribution %>">
+      </div>
+
+      <div class="field">
+        <label for="source_note">Source <span class="muted small">(optional)</span></label>
+        <input id="source_note" name="source_note" type="text" maxlength="140" value="<%= values.source_note %>">
+      </div>
+
+      <div class="field">
+        <label for="sort_order">Sort order</label>
+        <input id="sort_order" name="sort_order" type="number" step="1" value="<%= values.sort_order %>" class="inline-input">
+        <p class="hint">Lower numbers show first in this list. Rotation among active quotes follows this order.</p>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary">Add quote</button>
+        <a class="btn btn--sm" href="/admin">Back to admin</a>
+        <a class="btn btn--sm" href="/#quote" target="_blank" rel="noopener">View on the front page</a>
+      </div>
+    </form>
+
+    <p class="section-label">All quotes</p>
+
+    <% if (!quotes.length) { %>
+      <p class="empty">Nothing here yet — add the first one above.</p>
+    <% } else { %>
+      <ul class="quote-admin-list">
+        <% quotes.forEach(function (q) { %>
+          <li class="card quote-admin-item<%= q.is_active ? '' : ' quote-admin-item--inactive' %>">
+            <p class="ann-meta">
+              <span class="badge <%= q.is_active ? 'badge--ok' : 'badge--warn' %>">
+                <%= q.is_active ? 'Active' : 'Inactive' %>
+              </span>
+              <span class="mono small muted">sort <%= q.sort_order %></span>
+            </p>
+
+            <form method="post" action="/admin/quotes/<%= q.id %>" class="form quote-edit-form">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+              <div class="field">
+                <label for="text-<%= q.id %>">Quote</label>
+                <textarea id="text-<%= q.id %>" name="text" rows="2" required maxlength="200"><%= q.text %></textarea>
+              </div>
+
+              <div class="field">
+                <label for="attribution-<%= q.id %>">Attribution</label>
+                <input id="attribution-<%= q.id %>" name="attribution" type="text" required maxlength="140" value="<%= q.attribution %>">
+              </div>
+
+              <div class="field">
+                <label for="source-<%= q.id %>">Source <span class="muted small">(optional)</span></label>
+                <input id="source-<%= q.id %>" name="source_note" type="text" maxlength="140" value="<%= q.source_note || '' %>">
+              </div>
+
+              <div class="field">
+                <label for="sort-<%= q.id %>">Sort order</label>
+                <input id="sort-<%= q.id %>" name="sort_order" type="number" step="1" value="<%= q.sort_order %>" class="inline-input">
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" class="btn btn--sm">Save</button>
+              </div>
+            </form>
+
+            <div class="quote-admin-actions">
+              <form method="post" action="/admin/quotes/<%= q.id %>/toggle" class="inline-form">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <button class="btn btn--sm" type="submit"><%= q.is_active ? 'Deactivate' : 'Activate' %></button>
+              </form>
+              <form method="post" action="/admin/quotes/<%= q.id %>/delete" class="inline-form"
+                    data-confirm="Delete this quote for good?">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <button class="btn btn--sm btn--danger" type="submit">Delete</button>
+              </form>
+            </div>
+          </li>
+        <% }) %>
+      </ul>
+    <% } %>
+  </div>
+</section>

@@ -12,8 +12,10 @@
 
     <div class="hero-foot">
       <p class="lede">
-        We meet at a food hall in Remington and read each other's pages. This board
-        is where the time, the table and the drafts live.
+        We bring whatever we're working on and write it in timed sprints, side by
+        side — trading notes and support in the breaks between rounds. Sharing a
+        page is a door, not an assignment: this board keeps the schedule, the
+        table, and that door easy to find.
       </p>
       <div class="hero-actions">
         <% if (firstRun) { %>
@@ -158,6 +160,10 @@
                   markerY: meeting ? meeting.map_y : null,
                   interactive: false
                 }) %>
+            <p class="find-us small muted">
+              Easiest way to spot us: look for the table of open laptops, everyone
+              cranking away, and a timer or hourglass sitting in the middle.
+            </p>
           </div>
         <% } %>
       </div>
@@ -200,6 +206,13 @@
           From there it's twenty-minute sprints with ten-minute breaks between
           them — write, stop, talk, go again — until the two hours are up.
         </p>
+        <p>
+          Everybody's working on their own thing — a novel, a script, a stalled
+          short story, whatever's in front of them that week. There's no
+          assigned reading and no round-robin critique. If a piece feels ready
+          to show, the draft library is a door that's open; nobody's waiting on
+          you to walk through it.
+        </p>
       </div>
     </div>
   </section>
@@ -210,6 +223,22 @@
       <div class="prose measure"><%- aboutHtml %></div>
     </div>
   </section>
+
+  <% if (quoteOfDay) { %>
+    <section class="section quote-rail" id="quote">
+      <div class="wrap">
+        <blockquote class="quote-block">
+          <p class="quote-text">&ldquo;<%= quoteOfDay.text %>&rdquo;</p>
+          <footer class="quote-foot">
+            <cite class="quote-attribution">&mdash; <%= quoteOfDay.attribution %></cite>
+            <% if (quoteOfDay.source_note) { %>
+              <span class="quote-source mono small muted"><%= quoteOfDay.source_note %></span>
+            <% } %>
+          </footer>
+        </blockquote>
+      </div>
+    </section>
+  <% } %>
 
   <section class="section" id="announcements">
     <div class="wrap">
@@ -254,6 +283,54 @@
 
       <% if (isLeader) { %>
         <p class="section-foot"><a class="btn btn--sm" href="/admin/announcements">Post an announcement</a></p>
+      <% } %>
+    </div>
+  </section>
+
+  <section class="section" id="fresh-pages">
+    <div class="wrap">
+      <p class="section-label">Fresh pages</p>
+
+      <% if (currentUser) { %>
+        <% if (!recentDrafts.length) { %>
+          <p class="empty">
+            Nobody's shared a page yet — when someone opens the door, it lands here.
+          </p>
+        <% } else { %>
+          <% var featuredDraft = recentDrafts[0]; var moreDrafts = recentDrafts.slice(1, 3); %>
+          <div class="fresh-grid">
+            <a class="card fresh-card fresh-card--featured" href="/drafts/<%= featuredDraft.id %>">
+              <span class="badge badge--kind"><%= draftKindLabel[featuredDraft.kind] || featuredDraft.kind %></span>
+              <h3 class="fresh-title"><%= featuredDraft.title %></h3>
+              <p class="fresh-meta mono small muted">
+                <%= featuredDraft.uploader_name %> · <%= dates.formatDateShort(featuredDraft.created_at) %>
+              </p>
+            </a>
+            <% if (moreDrafts.length) { %>
+              <div class="fresh-side">
+                <% moreDrafts.forEach(function (d) { %>
+                  <a class="card fresh-card" href="/drafts/<%= d.id %>">
+                    <span class="badge badge--kind"><%= draftKindLabel[d.kind] || d.kind %></span>
+                    <h4 class="fresh-title-sm"><%= d.title %></h4>
+                    <p class="fresh-meta mono small muted">
+                      <%= d.uploader_name %> · <%= dates.formatDateShort(d.created_at) %>
+                    </p>
+                  </a>
+                <% }) %>
+              </div>
+            <% } %>
+          </div>
+        <% } %>
+        <p class="section-foot"><a class="btn" href="/drafts">View all drafts</a></p>
+      <% } else { %>
+        <% if (recentDraftCount > 0) { %>
+          <p class="measure">
+            Members have shared <%= recentDraftCount %> piece<%= recentDraftCount === 1 ? '' : 's' %> —
+            sign in to read along.
+          </p>
+        <% } else { %>
+          <p class="empty">Nothing shared yet — when it happens, this is where it'll show up.</p>
+        <% } %>
       <% } %>
     </div>
   </section>

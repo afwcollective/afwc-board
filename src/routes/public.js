@@ -1,7 +1,7 @@
 'use strict';
 
 const express = require('express');
-const { meetings, recurring, announcements, eventFiles, about } = require('../models');
+const { meetings, recurring, announcements, eventFiles, about, quotes, drafts } = require('../models');
 const { noUsersYet } = require('../auth/middleware');
 const { mdToHtml, toPlainText } = require('../util/sanitize');
 
@@ -9,6 +9,12 @@ const { mdToHtml, toPlainText } = require('../util/sanitize');
 const RECENT_ANNOUNCEMENT_COUNT = 6;
 /** How many special events the landing page lists before it would need paging. */
 const SPECIAL_EVENT_COUNT = 20;
+/** Featured cell + this many smaller cells in the "fresh pages" window. */
+const FRESH_DRAFT_COUNT = 3;
+
+/** Mirrors src/routes/drafts.js's KIND_LABEL — kept local rather than shared
+    across routers, same convention as everything else in that file. */
+const DRAFT_KIND_LABEL = { docx: 'Word', pdf: 'PDF', text: 'Text', images: 'Graphic novel' };
 
 const router = express.Router();
 
@@ -61,6 +67,21 @@ router.get('/', (req, res) => {
   const specialRaw = firstRun ? [] : meetings.upcomingSpecial(SPECIAL_EVENT_COUNT, excludeId);
   const specialEvents = signedIn ? specialRaw : specialRaw.map(meetings.publicSafe);
 
+  /*
+   * Quote rail: one deterministic pick, same for every visitor today. Null
+   * (nothing active, or a first-run board) just means the section is skipped
+   * — quotes.ofDay already returns null rather than throwing.
+   */
+  const quoteOfDay = firstRun ? null : quotes.ofDay();
+
+  /*
+   * "Fresh pages": members see the real thing (title, author, date, kind),
+   * a logged-out visitor sees only a count — no titles, no names. Both reads
+   * are READY, non-deleted drafts only, same rule the library itself uses.
+   */
+  const recentDrafts = !firstRun && signedIn ? drafts.recent(FRESH_DRAFT_COUNT) : [];
+  const recentDraftCount = !firstRun && !signedIn ? drafts.countAll() : 0;
+
   res.render('home', {
     title: null, // layout falls back to the site name
     bodyClass: 'page-home',
@@ -73,6 +94,10 @@ router.get('/', (req, res) => {
     pinnedAnnouncements,
     recentAnnouncements,
     specialEvents,
+    quoteOfDay,
+    recentDrafts,
+    recentDraftCount,
+    draftKindLabel: DRAFT_KIND_LABEL,
     pageJs: [],
   });
 });

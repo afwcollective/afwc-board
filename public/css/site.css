@@ -731,3 +731,60 @@ p:last-child { margin-bottom: 0; }
 .special-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s4); }
 .special-list .card + .card { margin-top: 0; }
 .special-card p:last-child { margin-bottom: 0; }
+
+/* ============================================================
+   LANDING v2 — the sprint-first voice pass, the quote rail, and
+   the "fresh pages" recent-drafts window. Reuses .card / .btn /
+   .badge / .empty / .section-label throughout; the rules below are
+   only the bits those didn't already cover.
+   ============================================================ */
+
+/* The "look for the table of open laptops" line under the floor map —
+   same register as the map's own caption, one step down from it. */
+.find-us { margin-top: var(--s3); }
+
+/* Quote rail: a single quiet moment between sections, not a card — serif
+   italic for the line itself, an em-dash attribution, and a mono source
+   note the way a caption reads elsewhere on this page. */
+.quote-block {
+  margin: 0 auto; max-width: 52ch; text-align: center;
+  padding: 0; border: 0;
+}
+.quote-text {
+  font-family: var(--serif); font-style: italic; font-weight: 500;
+  font-size: clamp(20px, 2.6vw, 28px); line-height: 1.4;
+  color: var(--ink-2); margin: 0 0 var(--s3);
+}
+.quote-foot { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.quote-attribution { font-style: normal; color: var(--ink-3); font-size: 15px; }
+.quote-source { letter-spacing: .12em; text-transform: uppercase; }
+
+/* Fresh pages: one featured cell, up to two smaller ones alongside. Cards
+   are links — the whole cell is clickable, not just the title. */
+.fresh-grid {
+  display: grid; gap: var(--s4);
+  grid-template-columns: 1fr;
+}
+@media (min-width: 760px) {
+  .fresh-grid { grid-template-columns: 1.4fr 1fr; align-items: stretch; }
+}
+.fresh-card {
+  display: block; text-decoration: none; color: inherit;
+}
+.fresh-card:hover { color: inherit; }
+.fresh-card .badge { margin-bottom: var(--s3); }
+.fresh-title { margin: 0 0 6px; }
+.fresh-title-sm { margin: 0 0 4px; font-size: 16px; }
+.fresh-meta { margin: 0; }
+.fresh-side { display: grid; gap: var(--s4); }
+.fresh-side .card { padding: clamp(14px, 2vw, 20px); }
+.fresh-side .card + .card { margin-top: 0; }
+
+/* ---- /admin/quotes ---- */
+
+.quote-admin-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s4); }
+.quote-admin-list .card + .card { margin-top: 0; }
+.quote-admin-item--inactive { opacity: .62; }
+.quote-edit-form { margin-top: var(--s4); }
+.quote-edit-form .field { margin-bottom: var(--s3); }
+.quote-admin-actions { display: flex; gap: 8px; margin-top: var(--s3); border-top: 1px solid var(--hair-2); padding-top: var(--s3); }
