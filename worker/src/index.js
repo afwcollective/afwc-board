@@ -28,9 +28,12 @@ import publicRouter from './routes/public.js';
 import authRouter from './routes/auth.js';
 import accountRouter from './routes/account.js';
 import adminRouter from './routes/admin.js';
+import boardRouter from './routes/board.js';
+import chatRouter from './routes/chat.js';
 import eventsRouter from './routes/events.js';
 import hostRouter from './routes/host.js';
-import { boardRouter, draftsRouter, timerRouter } from './routes/stubs.js';
+import timerRouter from './routes/timer.js';
+import { draftsRouter } from './routes/stubs.js';
 
 const app = new Hono();
 
@@ -112,6 +115,7 @@ app.route('/', authRouter);
 app.route('/account', accountRouter);
 app.route('/admin', adminRouter);
 app.route('/board', boardRouter);
+app.route('/chat', chatRouter);
 app.route('/drafts', draftsRouter);
 app.route('/events', eventsRouter);
 app.route('/host', hostRouter);

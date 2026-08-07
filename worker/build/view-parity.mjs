@@ -76,6 +76,66 @@ const person = {
   is_active: 1, created_at: '2026-07-01T12:00:00.000Z', last_login_at: '2026-08-01T12:00:00.000Z',
 };
 
+/*
+ * Chat (P3). views/chat/index.ejs and views/chat/messages.ejs were the two
+ * SKIPs P2 left behind — the fixture had none of their locals, so the ejs side
+ * threw on the first undefined name and the comparison never ran. The block
+ * below supplies all of them, and is deliberately shaped to exercise every
+ * BRANCH in both templates rather than merely to make them render:
+ *
+ *   · the current channel is a GROUP, so the head shows Leave + Archive +
+ *     the rename form (canAdmin) rather than #general's plainer header;
+ *   · myGroups carries an archived group (the "Archived" badge) and joinable
+ *     is non-empty (the "Groups you can join" rail, with its member-count
+ *     pluralisation);
+ *   · dms is non-empty (the DM rail with its relative timestamp);
+ *   · the transcript covers all four message shapes — a day separator, a
+ *     grouped follow-up, a removed message, and one carrying both an image
+ *     attachment (thumbnail path) and a non-image one (chip path) — plus a
+ *     deletable row, so the inline delete form renders;
+ *   · hasEarlier is true, so the "show earlier" link renders.
+ *
+ * `limits` is EXTENDED rather than replaced: views/drafts/new.ejs and
+ * views/admin/meeting-form.ejs read the upload numbers off the same object.
+ */
+const chatChannel = {
+  id: 4, kind: 'group', name: 'Sci-fi crew', description: 'Space opera, first contact, hard SF',
+  pair_key: null, created_by: 1, created_at: '2026-07-20T12:00:00.000Z',
+  archived_at: null, archived_by: null,
+};
+const chatGeneral = {
+  id: 1, kind: 'general', name: 'general',
+  description: 'Everyone in the collective. Announcements, questions, and whatever else the group is talking about.',
+  pair_key: null, created_by: null, created_at: '2026-07-01T12:00:00.000Z',
+  archived_at: null, archived_by: null,
+};
+const chatMessages = [
+  {
+    id: 10, user_id: 1, author: 'Brian', body_html: '<p>Morning, all.</p>',
+    created_at: '2026-08-06T13:00:00.000Z', removed: false, daySep: true,
+    dayLabel: 'Thu 6 Aug', grouped: false, mine: true, canDelete: true, attachments: [],
+  },
+  {
+    id: 11, user_id: 1, author: 'Brian', body_html: '<p>Two minutes to the sprint.</p>',
+    created_at: '2026-08-06T13:01:00.000Z', removed: false, daySep: false,
+    dayLabel: 'Thu 6 Aug', grouped: true, mine: true, canDelete: true, attachments: [],
+  },
+  {
+    id: 12, user_id: 2, author: 'Dana', body_html: '', created_at: '2026-08-07T09:00:00.000Z',
+    removed: true, daySep: true, dayLabel: 'Fri 7 Aug', grouped: false, mine: false,
+    canDelete: false, attachments: [],
+  },
+  {
+    id: 13, user_id: 2, author: 'Dana', body_html: '<p>Cover rough, plus the notes.</p>',
+    created_at: '2026-08-07T09:05:00.000Z', removed: false, daySep: false,
+    dayLabel: 'Fri 7 Aug', grouped: false, mine: false, canDelete: true,
+    attachments: [
+      { id: 1, name: 'cover.png', size: '2 KB', mime: 'image/png', isImage: true },
+      { id: 2, name: 'notes.txt', size: '1 KB', mime: 'text/plain; charset=utf-8', isImage: false },
+    ],
+  },
+];
+
 const LOCALS = {
   // app.locals + per-request
   site, dates: nodeDates, title: 'A title', bodyClass: 'page-x',
@@ -115,7 +175,11 @@ const LOCALS = {
   lastBackupAt: '2026-07-01T12:00:00.000Z', leaderCount: 2, memberCount: 5,
   passcodeSet: true, watermarkOn: true, previewHtml: '<p>Preview.</p>',
   files: [{ id: 1, original_name: 'flyer.png', size: 2048 }],
-  limits: { maxDocMb: 25, maxImageMb: 10, maxImages: 60, maxTotalMb: 150 },
+  limits: {
+    maxDocMb: 25, maxImageMb: 10, maxImages: 60, maxTotalMb: 150,
+    // chat/index.ejs
+    maxFiles: 3, maxFileMb: 10, maxChars: 8000,
+  },
   memberOptions: [person], upcoming: [meeting], past: [meeting],
   rules: [{ ...rule, skips: [{ id: 1, recurring_id: 1, skip_date: '2026-08-22' }], skipDefault: '2026-08-22', hosts: [{ id: 1, local_date: '2026-08-15', user_id: 2, display_name: 'Dana' }], nextDates: ['2026-08-15'], hostDates: [{ local_date: '2026-08-15', starts_at: '2026-08-15T17:00:00.000Z', host: { display_name: 'Dana' } }] }],
   quotes: [
@@ -134,6 +198,28 @@ const LOCALS = {
   pageSizes: [{ page_number: 1, width: 800, height: 1000 }],
   sections: [{ page: 1, heading: 'One' }], threadId: 2,
   watermarkDataUri: 'data:image/svg+xml;base64,AAA',
+  // chat
+  channel: chatChannel, general: chatGeneral, channelTitle: 'Sci-fi crew',
+  channelHref: (ch) => `/chat/c/${ch.id}`,
+  partner: { id: 2, display_name: 'Dana', username: 'dana', is_active: 1 },
+  // `memberCount` (5) and `canPost` (true) are already above — chat/index.ejs
+  // reads exactly those two names, so they are shared rather than duplicated.
+  myGroups: [
+    { ...chatChannel, member_count: 4, last_message_id: 13 },
+    { id: 5, kind: 'group', name: 'Poetry Mondays', description: null, archived_at: '2026-08-01T12:00:00.000Z', member_count: 2, last_message_id: 3 },
+  ],
+  joinable: [
+    { id: 6, kind: 'group', name: 'Memoir table', description: null, archived_at: null, member_count: 1 },
+    { id: 7, kind: 'group', name: 'Worldbuilders', description: 'Maps, languages, calendars', archived_at: null, member_count: 3 },
+  ],
+  dms: [
+    { id: 8, created_at: '2026-08-01T12:00:00.000Z', other_id: 2, other_name: 'Dana',
+      other_username: 'dana', other_active: 1, last_message_id: 9, last_at: '2026-08-06T18:00:00.000Z' },
+    { id: 9, created_at: '2026-08-02T12:00:00.000Z', other_id: 3, other_name: 'Walt',
+      other_username: 'walt', other_active: 1, last_message_id: 4, last_at: null },
+  ],
+  messages: chatMessages, show: 50, hasEarlier: true, pageSize: 50,
+  canRead: true, canAdmin: true, joined: true, conversationFocused: true,
   // host
   sessions: [{ ...meeting, type: 'recurring', editPath: '/host/recurring/1/2026-08-15', paused: false, skipped: false }],
   windowDays: 30,
