@@ -5,3 +5,6 @@ data/
 npm-debug.log*
 .DS_Store
 *.log
+
+# owner credentials — never commit (see OWNER-CREDENTIALS.md header)
+OWNER-CREDENTIALS.md
