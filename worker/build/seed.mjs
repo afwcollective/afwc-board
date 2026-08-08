@@ -195,10 +195,23 @@ async function main() {
   const sqlFile = path.join(os.tmpdir(), `afwc-seed-${process.pid}.sql`);
   fs.writeFileSync(sqlFile, lines.join('\n\n'), 'utf8');
 
+  /*
+   * AFWC_PERSIST_TO seeds a local state directory other than the default
+   * worker/.wrangler/state — the same value you would pass to
+   * `wrangler dev --persist-to`. It exists so a verification run can build a
+   * throwaway database on its own port without touching a dev server somebody
+   * has open on 8787. Unset (the normal case) means the default directory, and
+   * `--local` is still hard-coded either way: nothing here can ever reach the
+   * remote database.
+   */
+  const persistTo = process.env.AFWC_PERSIST_TO;
   try {
     execFileSync(
       'npx',
-      ['wrangler', 'd1', 'execute', 'DB', '--local', '--config', CONFIG, '--file', sqlFile],
+      [
+        'wrangler', 'd1', 'execute', 'DB', '--local', '--config', CONFIG, '--file', sqlFile,
+        ...(persistTo ? ['--persist-to', persistTo] : []),
+      ],
       { stdio: 'inherit', cwd: ROOT }
     );
   } finally {

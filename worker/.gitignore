@@ -2,5 +2,8 @@
 dist/
 .generated/
 
-# miniflare's local D1 / R2 / cache state for `wrangler dev --local`.
+# miniflare's local D1 / cache state for `wrangler dev --local`.
 .wrangler/
+
+# A local .dev.vars would carry a SETUP_TOKEN or similar — never commit one.
+.dev.vars

@@ -1,23 +1,24 @@
 /**
- * Draft originals and page images on R2 — the THIRD application of THE R2
- * PATTERN written down at the top of worker/src/services/events/attachments.js.
- * The four rules, and how this module keeps them:
+ * Draft originals and page images — the VALIDATION half; the bytes live in
+ * worker/src/services/filestore.js with everything else this app stores. The
+ * four rules are written out in their D1 form at the top of that file. This
+ * module's share of them:
  *
  * 1. KEYS ARE BUILT, NEVER ACCEPTED. `key(draftId, relPath)` is the only place
- *    a draft object key is composed, out of a validated integer id and a
+ *    a draft file's address is composed, out of a validated integer id and a
  *    relative path THIS module generated — `original.<ext>` or
  *    `pages/0001.<ext>`. A path read back out of D1 (drafts.original_path,
  *    draft_pages.file_path) is re-tested against SAFE_REL before it is used, so
- *    a hand-edited row cannot walk the bucket. Shape:
- *        drafts/<draftId>/original.docx
- *        drafts/<draftId>/pages/0001.png
- *    — the same tree src/services/ingest/paths.js kept on disk under
- *    uploads/drafts/, minus the uploads/ segment a bucket has no use for. That
- *    is also why this file is where resolveInDraft() went: refusing `..` is no
- *    longer a filesystem question, it is a "did we generate this name" question,
- *    and SAFE_REL is the answer.
+ *    a hand-edited row cannot name somebody else's bytes. The address is now
+ *    the triple ('drafts', draftId, 'pages/0001.png') where it used to be the
+ *    object key drafts/<draftId>/pages/0001.png — the same tree
+ *    src/services/ingest/paths.js kept on disk under uploads/drafts/, with the
+ *    id lifted out of the string. That is also why this file is where
+ *    resolveInDraft() went: refusing `..` stopped being a filesystem question
+ *    the moment the store stopped being a filesystem, and SAFE_REL — "could we
+ *    have generated this name" — is the answer that replaced it.
  *
- * 2. THE BUCKET IS NEVER PUBLIC. Every byte leaves through
+ * 2. THE STORE IS NEVER PUBLIC. Every byte leaves through
  *    GET /drafts/:id/file.pdf or GET /drafts/:id/img/:n in
  *    worker/src/routes/reader.js, both requireMember, both no-store, both
  *    Content-Disposition: inline. There is no signed URL and no public
@@ -26,7 +27,7 @@
  *    streams the one kind whose original IS the reading experience, and even
  *    that one is inline-only.
  *
- * 3. VALIDATE BEFORE YOU PUT. Extension → size → magic bytes, on the bytes in
+ * 3. VALIDATE BEFORE YOU WRITE. Extension → size → magic bytes, on the bytes in
  *    hand, for EVERY file in the submit, before anything is written. multer's
  *    declarative caps in src/routes/drafts.js become the explicit checks in
  *    limitError(); the complaint sentences are that file's, kept word for word
@@ -39,20 +40,28 @@
  *    is refused here; a client that lies about its page HTML is defanged by
  *    worker/src/util/sanitize.js. Neither was ever the client's call.
  *
- * 4. D1 ROWS OWN THE OBJECTS. The draft row is written first (its id names the
- *    folder, exactly as it named the directory before), then the objects. If
- *    the puts fail, the caller flips the draft to 'failed' and unlinks what
- *    landed. A row whose object is missing answers 404 rather than exploding,
- *    which is what the fs.existsSync check did. A soft-deleted draft keeps its
- *    objects (soft delete is reversible by a leader with SQL, exactly as on
- *    Express, where nothing was unlinked either).
+ * 4. ROWS OWN THE BYTES. The draft row is written first (its id names the
+ *    file's address, exactly as it named the directory before), then the bytes.
+ *    If a write fails, the caller flips the draft to 'failed' and unlinks what
+ *    landed. A page row whose bytes are missing answers 404 rather than
+ *    exploding, which is what the fs.existsSync check did.
  *
- * Deliberately a separate copy of the idea rather than a generalization of the
- * events and chat modules: this one answers a third question (what may a MEMBER
- * turn into a page-turner), over a third allowlist, with a size cap two orders
- * of magnitude larger. Folding them together would mean one edit could quietly
- * widen the others.
+ *    A SOFT-DELETED DRAFT STILL KEEPS ITS FILES — soft delete is reversible by
+ *    a leader with SQL, exactly as on Express, where nothing was unlinked
+ *    either. What is new is the other direction: the RETENTION SWEEP
+ *    (worker/src/scheduled.js) deletes files by age, and when a draft's files
+ *    go the draft is soft-deleted to match, so the library never lists a draft
+ *    whose pages have stopped existing. See that file for the policy.
+ *
+ * The allowlist and the sniffing are deliberately a separate copy of the idea
+ * rather than a generalization of the events and chat modules: this one answers
+ * a third question (what may a MEMBER turn into a page-turner), over a third
+ * allowlist, with a size cap two orders of magnitude larger. Folding them
+ * together would mean one edit could quietly widen the others. Only the storage
+ * half was general enough to share.
  */
+
+import * as filestore from '../filestore.js';
 
 /* ---------------- limits & formats — src/routes/drafts.js, verbatim -------- */
 
@@ -187,62 +196,57 @@ export function pageRel(index, ext) {
   return `pages/${String(index).padStart(4, '0')}${clean}`;
 }
 
+/** The filestore scope every file in this module belongs to. */
+const SCOPE = 'drafts';
+
 /**
- * The one place a draft object key is composed. Returns null when either half
- * is not something this module could have produced — the caller then 404s
- * rather than asking R2 a question built out of user input.
+ * The one place a draft file's address is composed. Returns the filestore
+ * triple, or null when either half is not something this module could have
+ * produced — the caller then 404s rather than asking the database a question
+ * built out of user input.
  */
 export function key(draftId, relPath) {
-  const id = Number(draftId);
-  if (!Number.isInteger(id) || id <= 0) return null;
   const rel = String(relPath || '');
   if (!SAFE_REL.test(rel)) return null;
-  return `drafts/${id}/${rel}`;
+  return filestore.fileKey(SCOPE, draftId, rel);
 }
 
 /* ---------------- reads & writes ---------------- */
 
 /**
- * One object, or null. `options` is passed through to R2 — the PDF route uses
- * it for `{ range: { offset, length } }`, which is how PORT-CLOUDFLARE.md §4's
- * "Range requests for the PDF reader use R2 range reads" is actually spelled.
+ * One file, as filestore's `{ status, headers, body }`, or null when nothing
+ * is stored at that address — which is what a missing original, a hand-edited
+ * row, and a file the retention sweep has aged out all look like from here.
+ *
+ * `options.range` is the raw Range HEADER, passed straight through: the whole
+ * of PORT-CLOUDFLARE.md §4's "Range requests for the PDF reader" now lives in
+ * filestore.stream(), which turns a byte range into the closed interval of
+ * chunk rows that intersects it. The parsing — the regex, the suffix range, the
+ * clamp, both 416 branches — is character for character what this route did
+ * against R2 and what Express does against a file descriptor, because pdf.js is
+ * the client and its expectations are not negotiable.
  */
-export function get(env, draftId, relPath, options) {
-  const objectKey = key(draftId, relPath);
-  if (!objectKey) return Promise.resolve(null);
-  return env.FILES.get(objectKey, options);
-}
-
-/** Object metadata without the body — the PDF route's stat() equivalent. */
-export function head(env, draftId, relPath) {
-  const objectKey = key(draftId, relPath);
-  if (!objectKey) return Promise.resolve(null);
-  return env.FILES.head(objectKey);
+export function open(env, draftId, relPath, options) {
+  const address = key(draftId, relPath);
+  if (!address) return Promise.resolve(null);
+  return filestore.stream(env.DB, address, options);
 }
 
 /** Writes one already-validated original or page image. */
 export async function put(env, draftId, relPath, bytes, contentType) {
-  const objectKey = key(draftId, relPath);
-  if (!objectKey) throw new Error(`refusing to write unsafe draft key: ${relPath}`);
-  await env.FILES.put(objectKey, bytes, {
-    httpMetadata: {
-      contentType: contentType || 'application/octet-stream',
-      cacheControl: 'private, no-store, max-age=0',
-    },
-  });
+  const address = key(draftId, relPath);
+  if (!address) throw new Error(`refusing to write unsafe draft file name: ${relPath}`);
+  await filestore.put(env.DB, SCOPE, address.refId, address.storedName, contentType, bytes);
   return relPath;
 }
 
 /** Best-effort byte removal — rule 4's cleanup path after a failed insert. */
 export async function unlink(env, draftId, relPaths) {
-  const keys = (Array.isArray(relPaths) ? relPaths : [relPaths])
+  const list = (Array.isArray(relPaths) ? relPaths : [relPaths])
     .map((rel) => key(draftId, rel))
     .filter(Boolean);
-  if (!keys.length) return;
-  try {
-    await env.FILES.delete(keys);
-  } catch (err) {
-    console.error('[afwc] draft object delete failed:', err);
+  for (const address of list) {
+    await filestore.remove(env.DB, SCOPE, address.refId, address.storedName);
   }
 }
 

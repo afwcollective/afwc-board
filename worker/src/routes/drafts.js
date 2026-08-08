@@ -19,7 +19,9 @@
  *                                   Magic bytes are sniffed HERE, server-side,
  *                                   as always. Writes the draft row (status
  *                                   'processing') + its discussion thread in one
- *                                   D1 batch, then streams the originals to R2.
+ *                                   D1 batch, then writes the originals to the
+ *                                   file store (also D1 — see
+ *                                   worker/src/services/filestore.js).
  *                                   → 201 { ok, id, redirect }
  *
  *   2. POST /drafts/:id/pages       JSON batches of converted pages, ≤150 KB
@@ -99,6 +101,7 @@ import { cleanHtml, toPlainText } from '../util/sanitize.js';
 import { getFormData, field } from '../util/body.js';
 import { render } from '../render.js';
 import * as files from '../services/drafts/attachments.js';
+import * as retention from '../services/retention.js';
 import * as ratelimit from '../util/ratelimit.js';
 
 const router = new Hono();
@@ -291,7 +294,8 @@ router.get('/', async (c) => {
  * origin (CSP script-src 'self'), so nobody uploading a .txt pays for a 700 KB
  * docx converter.
  */
-function newLocals(errors = [], values = {}) {
+async function newLocals(c, errors = [], values = {}) {
+  const days = await retention.retentionDays(c.env.DB);
   return {
     title: 'Share a draft',
     pageCss: ['/css/drafts.css'],
@@ -308,10 +312,20 @@ function newLocals(errors = [], values = {}) {
       maxImagesTotalMb: files.MAX_IMAGES_TOTAL_BYTES / 1024 / 1024,
       maxImages: files.MAX_IMAGES,
     },
+    /*
+     * The one local views/drafts/new.ejs takes that Express does not set — see
+     * the guard in that template. The sentence is built here so the NUMBER is
+     * whatever a leader has actually set on /admin, not a hardcoded year that
+     * could quietly become a lie.
+     */
+    retentionNote:
+      days === 365
+        ? 'Shared files are kept for a year, then cleaned up automatically.'
+        : `Shared files are kept for ${days} days, then cleaned up automatically.`,
   };
 }
 
-router.get('/new', (c) => render(c, 'drafts/new', newLocals()));
+router.get('/new', async (c) => render(c, 'drafts/new', await newLocals(c)));
 
 /* ---------------- step 1: create ---------------- */
 
@@ -326,7 +340,7 @@ router.post('/', async (c) => {
     const message = "You've shared a lot of drafts in the last hour — take a short break and try again soon.";
     return wantsJson
       ? c.json({ ok: false, errors: [message] }, 429, NO_STORE)
-      : render(c, 'drafts/new', newLocals([message]), 429);
+      : render(c, 'drafts/new', await newLocals(c, [message]), 429);
   }
 
   const declared = Number(c.req.header('content-length') || 0);
@@ -334,7 +348,7 @@ router.post('/', async (c) => {
     const message = `That upload is larger than ${Math.floor(MAX_UPLOAD_BYTES / 1024 / 1024)} MB.`;
     return wantsJson
       ? c.json({ ok: false, errors: [message] }, 413, NO_STORE)
-      : render(c, 'drafts/new', newLocals([message]), 413);
+      : render(c, 'drafts/new', await newLocals(c, [message]), 413);
   }
 
   const { fields, files: parts } = await getFormData(c);
@@ -403,7 +417,7 @@ router.post('/', async (c) => {
   if (errors.length) {
     return wantsJson
       ? c.json({ ok: false, errors }, 400, NO_STORE)
-      : render(c, 'drafts/new', newLocals(errors, { title, description, mode }), 400);
+      : render(c, 'drafts/new', await newLocals(c, errors, { title, description, mode }), 400);
   }
 
   /* ---- the row and its thread, then the bytes ----
@@ -485,7 +499,7 @@ router.post('/', async (c) => {
     const message = 'We could not store that upload. Please try again.';
     return wantsJson
       ? c.json({ ok: false, errors: [message] }, 500, NO_STORE)
-      : render(c, 'drafts/new', newLocals([message], { title, description, mode }), 500);
+      : render(c, 'drafts/new', await newLocals(c, [message], { title, description, mode }), 500);
   }
 
   flash(c, 'ok', 'Uploaded. Converting it for the reader now — this page updates itself.');

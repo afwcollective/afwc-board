@@ -659,10 +659,25 @@ export const hosts = {
  */
 
 export const eventFiles = {
+  /*
+   * `expired` is the retention window, asked per row: the attachment ROW is the
+   * event's permanent record of what was attached, but the BYTES are swept by
+   * age (worker/src/scheduled.js). Views that link to a file read this so they
+   * can say so quietly instead of offering a link into a 404. The correlated
+   * subquery is the same (scope, ref_id, stored_name) lookup the stream route
+   * does, against the UNIQUE index on stored_files.
+   *
+   * This is a WORKER-ONLY column — src/models.js has no counterpart because the
+   * Express app keeps uploaded files forever. Shared views therefore read it
+   * behind a typeof guard; see views/home.ejs.
+   */
   forMeeting: (db, meetingId) =>
     all(
       db,
-      `SELECT id, meeting_id, original_name, stored_name, mime, size, created_at
+      `SELECT id, meeting_id, original_name, stored_name, mime, size, created_at,
+              NOT EXISTS (SELECT 1 FROM stored_files s
+                           WHERE s.scope = 'events' AND s.ref_id = event_attachments.meeting_id
+                             AND s.stored_name = event_attachments.stored_name) AS expired
          FROM event_attachments WHERE meeting_id = ? ORDER BY id ASC`,
       meetingId
     ),

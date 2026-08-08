@@ -14,6 +14,31 @@
     <form method="post" action="/setup" class="form" autocomplete="off">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>">
 
+      <%
+        /*
+         * `setupTokenRequired` is set ONLY by the Cloudflare Worker stack, and
+         * only when a SETUP_TOKEN secret exists on the deployment — the
+         * one-time bootstrap code that stops a stranger claiming a freshly
+         * deployed board before its owner opens this page. The self-hosted
+         * Express app has no such binding and never sets the local, so the
+         * typeof guard skips this block entirely there and the form is
+         * byte-for-byte what it always was. Same arrangement as
+         * views/drafts/show.ejs's retryHint; proved in
+         * worker/build/view-parity.mjs.
+         */
+      %>
+      <% if (typeof setupTokenRequired !== 'undefined' && setupTokenRequired) { %>
+        <p class="form-legend">Setup code</p>
+        <div class="field">
+          <label for="setup_code">Setup code</label>
+          <input id="setup_code" name="setup_code" type="password" required autocomplete="off">
+          <p class="hint">
+            The one-time code set when this board was deployed. Whoever put the
+            site up has it; it is not the group passcode.
+          </p>
+        </div>
+      <% } %>
+
       <p class="form-legend">Your architect account</p>
 
       <div class="field">

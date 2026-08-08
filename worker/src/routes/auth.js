@@ -58,15 +58,55 @@ function safeNext(value) {
 // route cannot be used to mint a second architect. The first account is the
 // board's architect — the one tier that can demote or boot a leader, and the
 // one account nobody else can touch (see worker/src/auth/roles.js).
+//
+// ------------------------------------------------------- THE SETUP TOKEN ---
+//
+// The empty-table check is the whole gate on a stack you can see, and it is
+// enough there: nobody can reach a Node process on someone's laptop before its
+// owner does. A Worker is different. `wrangler deploy` puts an empty board on a
+// public URL, and whoever loads /setup first becomes its architect. The window
+// is small — the deployer usually IS the next person to open the page — but it
+// is a real window on a public hostname, and it is the one moment in this app's
+// life when a stranger could take the whole thing.
+//
+// So: an OPTIONAL bootstrap secret. When the SETUP_TOKEN binding exists (set on
+// deploy day with `npx wrangler secret put SETUP_TOKEN`), the form grows a
+// "Setup code" field and a submit without the matching code is refused with a
+// flat 403 and one generic sentence — no hint about whether a token is set,
+// what shape it has, or how close a guess was. The comparison is
+// constant-time (safeEqual, the same helper CSRF uses).
+//
+// WHEN THE BINDING IS ABSENT NOTHING CHANGES. Local dev has no secret, the
+// Express app has no such concept at all, and both behave exactly as they did.
+// The token is also inert the moment a user exists, because the 404 above fires
+// first; deleting the secret after setup is tidiness, not security.
+
+/** The configured bootstrap token, or null when there is no binding. */
+const setupToken = (c) => {
+  const raw = c.env && c.env.SETUP_TOKEN;
+  const value = typeof raw === 'string' ? raw.trim() : '';
+  return value ? value : null;
+};
+
+const setupLocals = (c, extra = {}) => ({
+  title: 'First run — set up your board',
+  bodyClass: 'page-auth',
+  errors: [],
+  values: {},
+  /*
+   * views/auth/setup.ejs renders the Setup code field only when this is true.
+   * The Express app never sets it — it has no bindings — so the template's
+   * typeof guard takes the else branch there and the page is byte-for-byte
+   * what it always was; same arrangement as P4's retryHint, proved in
+   * worker/build/view-parity.mjs.
+   */
+  setupTokenRequired: !!setupToken(c),
+  ...extra,
+});
 
 router.get('/setup', async (c) => {
   if (!(await noUsersYet(c.env.DB))) return notFound(c);
-  return render(c, 'auth/setup', {
-    title: 'First run — set up your board',
-    bodyClass: 'page-auth',
-    errors: [],
-    values: {},
-  });
+  return render(c, 'auth/setup', setupLocals(c));
 });
 
 router.post('/setup', async (c) => {
@@ -82,6 +122,19 @@ router.post('/setup', async (c) => {
   const passcode = field(body, 'passcode');
   const passcode2 = field(body, 'passcode2');
 
+  /*
+   * FIRST, before anything is validated and long before anything is written.
+   * A wrong code is not a form error with the rest of them — it is a closed
+   * door, and it says nothing a prober could use.
+   */
+  const token = setupToken(c);
+  if (token && !safeEqual(field(body, 'setup_code'), token)) {
+    console.warn('[afwc] /setup refused: setup code did not match');
+    return c.text('That setup code is not right.', 403, {
+      'Cache-Control': 'private, no-store, max-age=0',
+    });
+  }
+
   const errors = await validateAccount(db, { username, display_name, password, password2 });
   if (String(passcode || '').trim().length < 4) {
     errors.push('The group passcode must be at least 4 characters.');
@@ -93,12 +146,7 @@ router.post('/setup', async (c) => {
     return render(
       c,
       'auth/setup',
-      {
-        title: 'First run — set up your board',
-        bodyClass: 'page-auth',
-        errors,
-        values: { username, display_name, email },
-      },
+      setupLocals(c, { errors, values: { username, display_name, email } }),
       400
     );
   }

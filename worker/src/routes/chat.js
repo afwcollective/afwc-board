@@ -201,10 +201,22 @@ const latestMessages = (db, channelId, limit) =>
 const messageCountOf = async (db, channelId) =>
   (await one(db, 'SELECT COUNT(*) AS n FROM chat_messages WHERE channel_id = ?', channelId)).n;
 
+/*
+ * `has_file` is the retention window, asked per row. The attachment ROW is
+ * permanent — it is part of the transcript — but its BYTES are swept by age
+ * (worker/src/scheduled.js), and a chip that still looks like a link to a file
+ * that 404s is a small lie the transcript can avoid telling. The correlated
+ * subquery is the same (scope, ref_id, stored_name) lookup the stream route
+ * does, hitting the UNIQUE index on stored_files; a channel's worth of chips
+ * costs one index probe each on a query that was already running.
+ */
 const attachmentsForChannel = (db, channelId) =>
   all(
     db,
-    `SELECT a.* FROM chat_attachments a JOIN chat_messages m ON m.id = a.message_id
+    `SELECT a.*,
+            (SELECT 1 FROM stored_files s
+              WHERE s.scope = 'chat' AND s.ref_id = a.message_id AND s.stored_name = a.stored_name) AS has_file
+       FROM chat_attachments a JOIN chat_messages m ON m.id = a.message_id
       WHERE m.channel_id = ? AND m.deleted_at IS NULL`,
     channelId
   );
@@ -371,6 +383,16 @@ async function buildTranscript(db, channel, user, show) {
       size: humanSize(a.size),
       mime: a.mime,
       isImage: String(a.mime || '').startsWith('image/'),
+      /*
+       * The one field views/chat/messages.ejs takes that Express does not set.
+       * Express keeps uploaded files forever (see the retention section of
+       * README.md), so on that stack there is no such thing as an expired
+       * attachment and the template's typeof guard takes the else branch and
+       * renders exactly what it always did — proved by the two chat/messages
+       * variants in worker/build/view-parity.mjs. Same guard shape as P4's
+       * retryHint on views/drafts/show.ejs.
+       */
+      expired: !a.has_file,
     });
   }
 
@@ -868,8 +890,15 @@ router.post('/dm', async (c) => {
  * The only way an attachment's bytes leave this app. ACCESS IS RE-DERIVED FROM
  * THE MESSAGE'S CHANNEL ON EVERY REQUEST — a URL copied out of a DM is dead the
  * moment it reaches anyone who is not one of the two participants, and it 404s
- * rather than 403s so it does not even admit the file exists. R2 has no public
- * hostname; there is no other door.
+ * rather than 403s so it does not even admit the file exists. The bytes are
+ * rows in a private database; there is no other door.
+ *
+ * A file the retention sweep has aged out (worker/src/scheduled.js) 404s here
+ * through exactly the same branch as a file that was never there. The message
+ * itself survives — the transcript is the record of a conversation, and a
+ * conversation does not stop having happened because its attachment expired —
+ * and the chip in views/chat/messages.ejs renders a quiet "expired" state
+ * instead of a link, so nobody clicks into a 404 to find that out.
  */
 router.get('/files/:id', async (c) => {
   const db = c.env.DB;
@@ -896,15 +925,15 @@ router.get('/files/:id', async (c) => {
   if (!rule) return notHere(c, 'bytes');
 
   // key() re-checks stored_name against the shape this app generates, so a
-  // hand-edited row cannot name an object outside its own message folder.
-  const object = await attachments.get(c.env, channel.id, row.message_id, row.stored_name);
-  if (!object) return notHere(c, 'bytes');
+  // hand-edited row cannot name bytes outside its own message.
+  const res = await attachments.open(c.env, channel.id, row.message_id, row.stored_name);
+  if (!res) return notHere(c, 'bytes');
 
   const safeName = String(row.original_name || 'file').replace(/["\\\r\n]/g, '');
-  return c.body(object.body, 200, {
+  return c.body(res.body, 200, {
     ...NO_STORE,
     'Content-Type': row.mime || rule.mime || 'application/octet-stream',
-    'Content-Length': String(object.size),
+    'Content-Length': String(res.meta.size),
     'Content-Disposition': `${rule.inline ? 'inline' : 'attachment'}; filename="${safeName}"`,
   });
 });

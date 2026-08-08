@@ -88,6 +88,22 @@
         Members can read and comment. Nobody gets your original file back out —
         the reader streams pages, not downloads.
       </p>
+      <%
+        /*
+         * `retentionNote` is set ONLY by the Cloudflare Worker stack, which
+         * keeps uploaded files in its database and cleans them up on a
+         * schedule. The self-hosted Express app keeps them on disk forever and
+         * never sets it, so the typeof guard skips this line there and the page
+         * is byte-for-byte what it always was — the same arrangement
+         * views/drafts/show.ejs uses for retryHint. The sentence comes from the
+         * route rather than being written here because the number in it is a
+         * leader-editable setting, and a page that promised "a year" while the
+         * board was set to ninety days would be worse than no promise at all.
+         */
+      %>
+      <% if (typeof retentionNote !== 'undefined' && retentionNote) { %>
+        <p class="form-aside"><%= retentionNote %></p>
+      <% } %>
     </form>
   </div>
 </section>

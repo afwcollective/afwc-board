@@ -11,13 +11,34 @@ with no developer required to operate it day-to-day, and no monthly bill.
 
 ## The live site: Cloudflare Workers, at $0/month
 
-The site runs entirely on Cloudflare's free tier — **Workers** (the app
-itself, a [Hono](https://hono.dev) router), **D1** (the database, SQLite
-under the hood), and **R2** (draft files, event attachments, chat
-attachments, and the monthly backup snapshot). No credit card, no server to
+The site runs entirely on Cloudflare's free tier, on **two** services and no
+more: **Workers** (the app itself, a [Hono](https://hono.dev) router) and
+**D1** (the database, SQLite under the hood). No credit card, no server to
 patch, nothing that sleeps or spins down between visits. `worker/` holds this
 entire app; it shares `views/` and `public/` with the Express version below
 and nothing else.
+
+**Uploaded files live in the database.** Draft originals, page images,
+off-site event attachments and chat attachments are rows —
+`stored_files` + `file_chunks`, one metadata row per file and one BLOB row per
+megabyte of it (`worker/src/services/filestore.js`,
+`worker/migrations/0003_file_store.sql`). Nothing has a URL of its own; every
+byte still leaves through an authorized Worker route, exactly as before.
+
+### Why not R2, since it exists and is free?
+
+Because **enabling R2 on a Cloudflare account requires a payment method on
+file**, even though this app's usage would bill $0 forever. This board is
+owned by a shared group mailbox and handed on with it (see **Succession**),
+and "whoever currently holds that mailbox also keeps a card attached to this
+account" is not a thing that survives a change of leadership. D1's free tier
+needs no card at all, so the whole app fits inside one service that a
+volunteer can inherit without a conversation about money. That is the entire
+reason, and it is worth knowing before anyone "helpfully" adds a bucket back.
+
+The trade is real and is managed rather than ignored: files are chunked to fit
+D1's 2 MB row limit, and a **retention policy** (below) keeps the 5 GB free
+tier far away.
 
 Why this shape holds up on a free plan, in one paragraph each:
 
@@ -28,16 +49,48 @@ Why this shape holds up on a free plan, in one paragraph each:
 - **The CPU budget (≈10ms/request) shaped real decisions**, not just
   performance tuning. Document conversion (docx/pdf/markdown/images) happens
   in the *uploader's own browser* before anything reaches the Worker — see
-  `PORT-CLOUDFLARE.md §6` — and the password hasher (PBKDF2, see Security
-  posture below) was tuned against the actual measured budget, not a guess.
-- **D1's free tier** (5 GB stored, 5M rows read + 100k rows written per day)
-  and **R2's free tier** (10 GB stored, zero egress fee ever) are both
-  wildly larger than a volunteer writing group's board will ever produce.
+  `PORT-CLOUDFLARE.md §6` — the password hasher (PBKDF2, see Security posture
+  below) was tuned against the actual measured budget, and the backup download
+  paginates itself for the same reason (see **Backup and restore**).
+- **D1's free tier** — 5 GB stored, 5M rows read + 100k rows written per day —
+  is now the file-storage ceiling too, which is why the retention policy
+  exists. A volunteer writing group's board, whose drafts are mostly
+  sub-megabyte prose and whose files are cleaned up after a year, is nowhere
+  near it.
 - **Three Cron Triggers**, free on every Cloudflare plan, do everything this
   app used to do at Node process boot or on a `setInterval`: sweep stale
-  sessions/drafts/rate-limit rows every 15 minutes, write a daily integrity
-  report, and snapshot the database to R2 once a month. See
-  `worker/wrangler.toml`'s `[triggers]` block and `worker/src/scheduled.js`.
+  sessions/drafts/rate-limit rows every 15 minutes; run the file-retention
+  sweep and write an integrity report daily; and re-check the numbers behind
+  the backup page monthly. See `worker/wrangler.toml`'s `[triggers]` block and
+  `worker/src/scheduled.js`.
+
+## How long files are kept
+
+**Shared files are kept for a year, then cleaned up automatically.** A leader
+can change the number on `/admin` (anything from 30 to 3650 days; anything
+outside that is adjusted to the nearest allowed value), and the daily cron
+does the work. What "cleaned up" means depends on what the file was, and the
+reasoning is written out in full at the top of
+`worker/src/services/retention.js`:
+
+- **A draft is its file**, so when a draft's files age out the draft is
+  soft-deleted too — exactly as if someone had clicked Remove, with
+  `deleted_by` left NULL because nobody did. It leaves the library, the reader
+  answers "That draft is not here", and its conversation and comments survive
+  untouched, same as any other soft delete. Its `status` and `error_msg` are
+  deliberately not touched: `failed` means "conversion didn't work" and members
+  read that sentence.
+- **A chat message is a record of a conversation** and doesn't stop having
+  happened. The message and its attachment row stay exactly where they are;
+  only the bytes go. The link becomes a quiet "expired" chip, and the file
+  route 404s.
+- **An event** works the same way: the meeting, its address and its details are
+  the record; the flyer was attached to it.
+
+The self-hosted Express app (appendix, below) keeps uploaded files **forever**
+— it stores them on a disk whose size is the operator's problem, and it has no
+scheduler. That divergence is deliberate and is the only behavioural
+difference between the two stacks.
 
 ## Local development
 
@@ -56,7 +109,7 @@ fastest way to poke at a UI change or reproduce a bug report, and it stays
 fully maintained (`src/`, sharing `views/` and `public/` with the Worker) as
 a documented self-hosting alternative — see the appendix at the bottom of
 this file. It is **not** what the live site runs; use the path below to test
-anything that touches D1, R2, sessions, or the deploy pipeline.
+anything that touches D1, the file store, sessions, or the deploy pipeline.
 
 On first run, with no users in the database, the front page links to
 `/setup`. Data lives in `./data` (gitignored) — delete that folder to start
@@ -72,10 +125,10 @@ npm run worker:seed:local     # seeds three test accounts + fixtures — see bel
 npm run worker:dev            # wrangler dev --local, http://localhost:8787
 ```
 
-This runs the *actual* Worker code — Hono routes, D1 queries, R2 streams,
-the client-side draft-ingest pipeline — against `workerd` (Cloudflare's
-runtime) with local, on-disk emulations of D1 and R2. No Cloudflare account,
-no login, nothing leaves your machine. This is what a pull request should be
+This runs the *actual* Worker code — Hono routes, D1 queries, chunked file
+streaming, the client-side draft-ingest pipeline — against `workerd`
+(Cloudflare's runtime) with a local, on-disk emulation of D1. No Cloudflare
+account, no login, nothing leaves your machine. This is what a pull request should be
 tested against before it merges, and what `npm run worker:verify` checks in
 CI (build + view-parity + a handful of unauthenticated smoke requests).
 
@@ -114,17 +167,19 @@ cd worker
 # 1. Sign in once. Opens a browser tab; nothing after this needs it again.
 wrangler login
 
-# 2. Create the database. WRITE DOWN THE UUID THIS PRINTS — you need it in step 3.
+# 2. Create the database — ONCE, and only if worker/wrangler.toml's
+#    database_id is still a placeholder. It is already filled in for this
+#    group's database, so on a fresh clone of THIS repo you skip to step 4.
 wrangler d1 create afwc-board
 
-# 3. Open worker/wrangler.toml and paste that UUID into database_id under
-#    [[d1_databases]]. It's marked with a loud comment so you can't miss it:
-#      # ← PASTE FROM `wrangler d1 create afwc-board` OUTPUT (the "database_id" line)
-#      database_id = "00000000-0000-0000-0000-000000000000"
+# 3. If you ran step 2, paste the UUID it printed into database_id under
+#    [[d1_databases]] in worker/wrangler.toml.
+#    (There is no bucket to create. Files live in D1 — see "Why not R2".)
 
-# 4. Create the file bucket. The name in wrangler.toml is already final —
-#    this step just brings the bucket that name refers to into existence.
-wrangler r2 bucket create afwc-board-files
+# 4. Set the one-time bootstrap code, so a stranger cannot claim the board
+#    between deploy and your first visit to /setup. Pick anything long and
+#    random; you will type it once, in step 7. Wrangler prompts for the value.
+npx wrangler secret put SETUP_TOKEN
 
 # 5. Apply the database schema to the REAL (remote) database — --remote is
 #    the one flag that makes this touch Cloudflare instead of local state.
@@ -138,9 +193,23 @@ wrangler deploy
 
 # 7. Visit the URL wrangler just printed (something like
 #    https://afwc-board.<your-subdomain>.workers.dev) and go to /setup.
-#    This creates the first leader account (the architect) and the group's
-#    shared registration passcode — same as local dev's /setup, but for real.
+#    Because SETUP_TOKEN is set, the form asks for the "Setup code" from
+#    step 4 as well. This creates the first leader account (the architect)
+#    and the group's shared registration passcode.
+
+# 8. Optional tidiness: once an account exists, /setup is gone for good and
+#    the secret does nothing. Remove it if you like.
+npx wrangler secret delete SETUP_TOKEN
 ```
+
+**About step 4.** The empty-users check has always guarded `/setup`, and on a
+laptop that is enough — nobody reaches a Node process before its owner does. A
+Worker is different: `wrangler deploy` puts an empty board on a public URL, and
+until somebody completes `/setup`, whoever loads it first becomes the
+architect. The window is usually seconds, but it is a real window on a public
+hostname. With the secret set, a submit without the matching code is refused
+with a flat 403 and one generic sentence; without the secret (local dev, the
+Express app) nothing changes at all. See `worker/src/routes/auth.js`.
 
 **From then on: push-to-deploy.** Once the pieces above exist,
 `.github/workflows/deploy.yml` builds and deploys on every push to `main` —
@@ -148,21 +217,21 @@ nobody needs to run `wrangler deploy` by hand again. That workflow needs one
 more thing, a repo secret, which only has to be set up once:
 
 ```bash
-# 8. Create a scoped API token instead of reusing your personal login:
+# 9. Create a scoped API token instead of reusing your personal login:
 #    Cloudflare dashboard → My Profile → API Tokens → Create Token.
-#    Start from the "Edit Cloudflare Workers" template, then ADD two more
-#    permissions it doesn't include by default:
+#    Start from the "Edit Cloudflare Workers" template, then ADD the one
+#    permission it doesn't include by default:
 #      Account → D1 → Edit
-#      Account → Workers R2 Storage → Edit
+#    (No R2 permission is needed — there is no bucket. See "Why not R2".)
 #    Scope it to the one account this app lives in. Copy the token — it's
 #    shown once.
 
-# 9. Add it as a repo secret:
+# 10. Add it as a repo secret:
 #    GitHub repo → Settings → Secrets and variables → Actions →
 #    New repository secret → name it CLOUDFLARE_API_TOKEN, paste the value.
 ```
 
-Until step 9 is done, `.github/workflows/deploy.yml` still runs on every
+Until step 10 is done, `.github/workflows/deploy.yml` still runs on every
 push — it builds and checks view parity, then skips the deploy steps with a
 plain-English notice in the workflow summary, rather than failing. That's
 deliberate: this repo can exist and take contributions before the group's
@@ -192,59 +261,84 @@ repeating any time `scripts/vendor/qr-encoder.mjs` changes, not just once.
 
 ## Backup and restore
 
-**As a leader**, visit `/admin/backup`. Two things live there:
+**There is no automatic off-site copy.** Cloudflare keeps D1 durable and
+replicated, which protects against hardware failure; it does not protect
+against somebody deleting the wrong thing, or against the account itself going
+away. The only thing that does is a file on somebody's laptop. So, plainly:
+**the download on `/admin/backup` is the backup.** A leader clicking it once a
+month — right after a meeting is an easy habit — is the whole disaster plan,
+and the admin dashboard nags in amber past 30 days or if one has never been
+taken.
 
-- **Download database snapshot (.sql)** — a plain-text SQL dump of every
-  table (members, meetings, announcements, board posts, drafts metadata,
-  comments — everything except the files themselves), on demand, any time.
-  This is the one-click half of the story, and the admin dashboard shows how
-  long it's been since the last one, turning amber past 30 days or if one
-  has never been taken.
-- **The automatic monthly snapshot** — the same dump, written to R2
-  (`backups/YYYY-MM/`) by a Cron Trigger on the 1st of every month whether or
-  not a leader remembers to click anything. Belt-and-braces, not a
-  replacement for the on-demand download — see `worker/src/services/backup.js`
-  for the exact mechanics and why it's shaped as one R2 object per table
-  rather than one giant file.
+(There *used* to be a monthly snapshot written to R2. There is no bucket any
+more — see **Why not R2** — so that cron job now only re-checks the numbers
+behind the backup page and stamps when it last did. It does not copy anything,
+and the page says so.)
 
-Neither of those includes the uploaded files themselves (draft originals,
-event attachments, chat attachments) — those live in R2 under `drafts/`,
-`events/`, and `chat/`, and copying them needs a terminal, not a browser
-button. This is the one-time setup for whoever holds the Cloudflare account,
-not a monthly chore:
+### What the download contains
+
+A plain-text SQL dump of every application table, as `INSERT OR REPLACE`
+statements you can open in a text editor. Because the files now live in the
+database, **this can finally be a complete backup** — draft originals, page
+images, event and chat attachments included — which the R2-era dump never
+could be. Whether it is depends on size, and the page tells the leader which
+case they are in:
+
+- **Small file store (under 128 KB):** everything is in the one file. This is
+  the normal case for a board of prose drafts.
+- **Larger:** the main file carries every table *including* the `stored_files`
+  list of what the board holds, but not the bytes. The bytes come down as
+  numbered **parts** linked from the same page. The main file also carries a
+  loud comment block naming every file, the parts they are in, and a SQL query
+  that verifies a restore is complete.
+
+The split exists because turning bytes into SQL text costs CPU — measured at
+~6 ms/MB in plain Node and 7–31 ms/MB in `workerd` — against a free-plan
+budget of about 10 ms per request. See the CPU BUDGET section at the top of
+`worker/src/services/backup.js` for the measurements, the constants they set,
+and the alternatives that were rejected.
+
+**One honest limit.** A part cannot be smaller than one chunk row, so a file
+over ~1 MB produces a part that may exceed the request budget. Those are
+labelled "may time out" on the page. They often work; if one doesn't, use
+Cloudflare's own server-side export, which no CPU limit applies to and which
+produces a complete dump in one file:
 
 ```bash
-# One object at a time, by key (find keys via the Cloudflare dashboard's R2
-# browser, or `wrangler r2 object get` will tell you if a key is wrong):
-wrangler r2 object get afwc-board-files/drafts/<draftId>/original.docx --file ./out --remote
-
-# Or the whole bucket in one command, with rclone configured for an R2 API
-# token (Cloudflare dashboard → R2 → Manage R2 API Tokens):
-rclone copy r2:afwc-board-files ./local-backup
+npx wrangler d1 export afwc-board --remote --output afwc-full.sql
 ```
 
-**Full restore drill** — standing the board back up from a snapshot, e.g.
-after a disaster or when migrating to a new Cloudflare account:
+That is the developer-grade full backup. The in-app download is the
+leader-grade one, and it is complete for the board this app is for.
 
-1. Create a fresh D1 database and apply `worker/migrations/*.sql` to it
-   (steps 2 and 5 of the DEPLOY-DAY CHECKLIST, above, against the new
-   database).
-2. Load the SQL dump: `sqlite3` can't write directly to D1, so the dump's
-   `INSERT` statements go in via `wrangler d1 execute afwc-board --remote
-   --file ./the-dump.sql`. For a dump pulled from the automatic monthly
-   snapshot rather than the on-demand download, first concatenate that
-   month's per-table objects (`backups/YYYY-MM/<table>[.N].sql`, listed in
-   that folder's `manifest.json`) into one file, in the order the manifest
-   lists them.
-3. Recreate the R2 bucket (`wrangler r2 bucket create`) and copy the files
-   back in with `rclone copy ./local-backup r2:afwc-board-files` (the
-   reverse of the command above).
-4. Update `worker/wrangler.toml`'s `database_id` to the new database's UUID
-   and redeploy.
+### Full restore drill
 
-There is no restore *button* in the admin console, on purpose — restoring
-means replacing the live database wholesale, which is rare and risky enough
-that it deserves a deliberate, off-app procedure rather than a click.
+Standing the board back up from a backup — after a disaster, or when migrating
+to a new Cloudflare account. This procedure is verified end to end, including a
+byte-for-byte hash check of a restored 10 MB file:
+
+```bash
+# A local copy you can open, read, and query:
+cat worker/migrations/*.sql afwc-backup-*.sql afwc-backup-files-*.sql | sqlite3 restored.db
+
+# Check nothing is short (should return no rows):
+sqlite3 restored.db "SELECT s.id, s.stored_name, s.size, COALESCE(SUM(LENGTH(c.data)),0) AS restored
+                       FROM stored_files s LEFT JOIN file_chunks c ON c.file_id = s.id
+                      GROUP BY s.id HAVING restored <> s.size;"
+```
+
+Into a live board:
+
+1. Create a fresh D1 database and apply `worker/migrations/*.sql` to it (steps
+   2 and 5 of the DEPLOY-DAY CHECKLIST, against the new database).
+2. Load the dump — `sqlite3` can't write to D1, so the statements go in with
+   `wrangler d1 execute afwc-board --remote --file ./afwc-backup-2026-08-08.sql`.
+   Repeat for each file part.
+3. Update `worker/wrangler.toml`'s `database_id` to the new UUID and redeploy.
+
+There is no restore *button* in the admin console, on purpose — restoring means
+replacing the live database wholesale, which is rare and risky enough that it
+deserves a deliberate, off-app procedure rather than a click.
 
 ## Succession
 
@@ -395,7 +489,7 @@ must stay off for the same reason as above.
 
 See `.env.example` for a copyable starting point. (The Worker stack needs
 none of this — no session secret, no data directory, no port — its
-equivalents are D1/R2 bindings and Cloudflare's own TLS termination.)
+equivalent is the one D1 binding, plus Cloudflare's own TLS termination.)
 
 ### Backup and restore (Express stack)
 
@@ -415,6 +509,13 @@ on a fresh volume:
 4. Start (or restart) the app pointed at that volume as `DATA_DIR`. It finds
    the existing database, runs any migrations newer than the backup, and
    serves exactly the state that was backed up.
+
+**No retention policy here.** This stack keeps uploaded files forever: it has a
+real filesystem whose size is the operator's problem, and no scheduler to sweep
+with. The Worker stack cleans files up after a year (see **How long files are
+kept**) because its files share the database's 5 GB free tier. The shared
+templates handle the difference with `typeof` guards, so this app's pages are
+byte-for-byte what they always were — proved by `npm run worker:parity:views`.
 
 ## Support
 

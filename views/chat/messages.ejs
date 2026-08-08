@@ -36,9 +36,30 @@
 
           <% if (m.attachments.length) { %>
             <ul class="chat-files">
+              <%
+                /*
+                 * `a.expired` is set ONLY by the Cloudflare Worker stack, which
+                 * keeps shared files for a year and then cleans them up (its
+                 * retention sweep — worker/src/scheduled.js). The Express app
+                 * keeps uploaded files forever and never sets this, so the
+                 * typeof guard below sends it down the same two branches it has
+                 * always taken and its output stays byte-for-byte identical —
+                 * the arrangement views/drafts/show.ejs uses for retryHint, and
+                 * proved the same way, in worker/build/view-parity.mjs.
+                 *
+                 * An expired attachment keeps its place in the transcript: the
+                 * message still happened and still says what it said. The chip
+                 * just stops pretending to be a link into a file that is gone.
+                 */
+              %>
               <% m.attachments.forEach(function (a) { %>
                 <li class="chat-file<%= a.isImage ? ' chat-file--img' : '' %>">
-                  <% if (a.isImage) { %>
+                  <% if (typeof a.expired !== 'undefined' && a.expired) { %>
+                    <span class="chat-chip chat-chip--expired" title="Shared files are kept for a year, then cleaned up automatically.">
+                      <span class="chat-chip-name"><%= a.name %></span>
+                      <span class="chat-chip-size mono small">expired</span>
+                    </span>
+                  <% } else if (a.isImage) { %>
                     <a href="/chat/files/<%= a.id %>" class="chat-thumb-link">
                       <img class="chat-thumb" src="/chat/files/<%= a.id %>" alt="<%= a.name %>" loading="lazy">
                     </a>

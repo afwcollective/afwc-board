@@ -173,11 +173,29 @@ const LOCALS = {
   // admin
   announcements: [ann], announcementCount: 1, backupStale: true,
   lastBackupAt: '2026-07-01T12:00:00.000Z', leaderCount: 2, memberCount: 5,
-  // admin/backup.ejs (P5) — the Worker-only backup page. lastBackupAt and
-  // backupStale above are shared with the dashboard card; these three are
-  // read only here.
+  /*
+   * admin/backup.ejs — the Worker-only backup page (Express has no such route;
+   * it streams a real zip from /admin/backup.zip). lastBackupAt and backupStale
+   * above are shared with the dashboard card; the rest are read only here.
+   *
+   * The base fixture puts the file store in the PAGINATED world (filesInline
+   * false, two parts) because that branch has the most markup in it; the
+   * "small store" and "empty store" branches are variants below.
+   *
+   * NOTE ON retentionDays: it is in the BASE fixture, not a variant, because
+   * admin/backup.ejs needs it and only the base pass renders that view. That
+   * means admin/dashboard's base pass takes its WORKER branch. Both of the
+   * dashboard's real-world combinations are therefore pinned explicitly as
+   * variants below — the Express one (no Worker locals at all) and the Worker
+   * one — rather than relying on the base pass to be either.
+   */
   lastSnapshotAt: '2026-07-01T09:00:00.000Z', lastSnapshotMonth: '2026-07',
-  r2Prefixes: ['drafts/', 'events/', 'chat/', 'backups/'],
+  fileCount: 7, fileBytes: 12_582_912, filesInline: false,
+  fileParts: [
+    { part: 1, fromFile: 1, fromChunk: 0, toFile: 5, toChunk: 0, rows: 5, bytes: 240_000, oversize: false },
+    { part: 2, fromFile: 6, fromChunk: 0, toFile: 6, toChunk: 0, rows: 1, bytes: 1_000_000, oversize: true },
+  ],
+  retentionDays: 365, retentionMin: 30, retentionMax: 3650,
   passcodeSet: true, watermarkOn: true, previewHtml: '<p>Preview.</p>', expiringLeaderCount: 1,
   files: [{ id: 1, original_name: 'flyer.png', size: 2048 }],
   limits: {
@@ -334,14 +352,81 @@ const VARIANTS = [
   ['drafts/new', 'with errors', { errors: ['Give the draft a title so people know what they are opening.'] }],
   ['drafts/new', 'image mode preselected', { values: { title: 'Panels', description: '', mode: 'images' } }],
   /*
-   * admin/dashboard's Backup card (P5) — same guard shape as drafts/show's
-   * retryHint above. The base LOCALS pass already covers Express's real
-   * condition (backupHref/backupLabel absent, else branch, hardcoded
-   * /admin/backup.zip + "Download backup"); this variant proves the branch
-   * the Worker actually takes (worker/src/routes/admin.js's GET / handler)
-   * renders identically on both engines too.
+   * admin/dashboard's two real shapes. The Backup card (P5) and the file
+   * RETENTION card (this phase) are both typeof-guarded Worker-only locals —
+   * the same arrangement as drafts/show's retryHint above — so the two
+   * combinations that actually ship are pinned here rather than implied:
+   *
+   *   express  no Worker locals at all: the hardcoded /admin/backup.zip +
+   *            "Download backup" link, and no retention card.
+   *   worker   worker/src/routes/admin.js's GET / handler, in full.
+   *
+   * `undefined` really does mean "absent" for a typeof guard: `with(locals)`
+   * binds the name, and `typeof name` on a bound-but-undefined name is
+   * 'undefined' — which is exactly the state Express leaves it in.
    */
-  ['admin/dashboard', 'worker backup card', { backupHref: '/admin/backup', backupLabel: 'Backup options' }],
+  ['admin/dashboard', 'express stack (no worker locals)', {
+    backupHref: undefined, backupLabel: undefined,
+    retentionDays: undefined, retentionMin: undefined, retentionMax: undefined,
+  }],
+  ['admin/dashboard', 'worker stack (backup card + retention card)', {
+    backupHref: '/admin/backup', backupLabel: 'Backup options',
+    retentionDays: 90, retentionMin: 30, retentionMax: 3650,
+  }],
+
+  /*
+   * admin/help's Backups section forks the same way: Express documents its zip
+   * of app.db + uploads/, the Worker documents a .sql download and the
+   * retention window. The base pass renders the Worker half (retentionDays is
+   * in the fixture); this pins Express's.
+   */
+  ['admin/help', 'express stack (zip backup section)', { retentionDays: undefined }],
+
+  /*
+   * admin/backup.ejs's other two file-store worlds. The base fixture is the
+   * paginated one; a board with a handful of prose drafts gets the first of
+   * these, and a brand-new board gets the second.
+   */
+  ['admin/backup', 'small store (files inline)', { filesInline: true, fileCount: 3, fileBytes: 240_000, fileParts: [] }],
+  ['admin/backup', 'empty store', { filesInline: true, fileCount: 0, fileBytes: 0, fileParts: [] }],
+  ['admin/backup', 'never downloaded', { lastBackupAt: null, lastSnapshotAt: null, lastSnapshotMonth: null }],
+
+  /*
+   * drafts/new's retention note — Worker-only, and worded from a live setting
+   * so the number is never a lie. Base covers Express (absent).
+   */
+  ['drafts/new', 'worker retention note', {
+    retentionNote: 'Shared files are kept for a year, then cleaned up automatically.',
+  }],
+
+  /*
+   * The two Worker-only "expired" flags on shared views. Both are per-ITEM
+   * rather than per-page locals — `a.expired` on an attachment, `f.expired` on
+   * an event file — so the fixture varies the collection rather than a
+   * top-level name. Express supplies neither key, which the base pass covers.
+   */
+  ['chat/messages', 'worker: attachments still live', {
+    messages: chatMessages.map((m) => ({
+      ...m,
+      attachments: m.attachments.map((a) => ({ ...a, expired: false })),
+    })),
+  }],
+  ['chat/messages', 'worker: attachments expired', {
+    messages: chatMessages.map((m) => ({
+      ...m,
+      attachments: m.attachments.map((a) => ({ ...a, expired: true })),
+    })),
+  }],
+  ['home', 'worker: event attachment expired', {
+    eventAttachments: [{ id: 1, meeting_id: 7, original_name: 'flyer.png', size: 2048, expired: 1 }],
+  }],
+
+  /*
+   * The bootstrap setup code — rendered only when a SETUP_TOKEN binding exists
+   * on the deployment. Express has no bindings and never sets it, which the
+   * base pass covers.
+   */
+  ['auth/setup', 'worker: setup code required', { setupTokenRequired: true }],
 ];
 
 const names = Object.keys(workerViews).sort();

@@ -1,12 +1,25 @@
+<%
+  /*
+   * WORKER-ONLY VIEW. The Express app in src/ has no /admin/backup page — its
+   * GET /admin/backup.zip streams a real zip straight off the disk (see
+   * src/services/backup.js), and views/admin/dashboard.ejs still points there
+   * on that stack through its typeof-guarded backupHref local. This file is
+   * rendered by worker/src/routes/admin.js and nothing else; it lives in the
+   * shared views/ directory because that is where the compiler looks, and it
+   * is compared engine-to-engine by worker/build/view-parity.mjs like every
+   * other template.
+   */
+%>
 <section class="section">
   <div class="wrap wrap--narrow">
     <p class="eyebrow">Leaders only</p>
     <h1>Backups</h1>
     <p class="lede measure">
-      This board runs on Cloudflare's managed database and file storage, so
-      there's no single file on a disk to zip up. What you get instead: a
-      database snapshot you can download any time below, plus a copy that's
-      already made automatically without anyone clicking anything.
+      Everything this board holds — members, posts, meetings, drafts, comments
+      and the uploaded files themselves — lives in one managed database. There
+      is no disk to copy and nothing this site quietly backs up somewhere else
+      on your behalf. <strong>The download on this page is the backup.</strong>
+      Grab one now and then, and keep it somewhere that isn't Cloudflare.
     </p>
 
     <div class="card <%= backupStale ? 'card--warn' : '' %>">
@@ -19,25 +32,109 @@
         <% } %>
       </p>
       <p class="form-actions">
-        <a class="btn btn--primary" href="/admin/backup/download.sql">Download database snapshot (.sql)</a>
+        <a class="btn btn--primary" href="/admin/backup/download.sql">Download backup (.sql)</a>
       </p>
       <p class="hint hint--block">
         A plain-text SQL file with every member, post, announcement, meeting,
         draft record and comment as <span class="mono">INSERT</span>
         statements — open it in any text editor, or load it into a fresh
-        database with the <span class="mono">sqlite3</span> command line. It
-        does <strong>not</strong> include the draft, event or chat files
-        themselves; see below for those. Downloading refreshes the "last
-        backed up" badge on the <a href="/admin">admin dashboard</a>.
+        database with the <span class="mono">sqlite3</span> command line.
+        Downloading refreshes the "last backed up" badge on the
+        <a href="/admin">admin dashboard</a>.
       </p>
     </div>
 
     <div class="card">
-      <p class="eyebrow eyebrow--muted">Automatic monthly snapshot</p>
+      <p class="eyebrow eyebrow--muted">The files themselves</p>
+      <% if (!fileCount) { %>
+        <p class="measure">
+          Nothing is stored yet — no drafts, event attachments or chat
+          attachments. The download above is a complete backup as it stands.
+        </p>
+      <% } else if (filesInline) { %>
+        <p class="measure">
+          <span class="badge badge--ok"><%= fileCount %> file<%= fileCount === 1 ? '' : 's' %></span>
+          <span class="mono small muted"><%= Math.max(1, Math.round(fileBytes / 1024)) %> KB</span>
+          — small enough to travel inside the download above, so that one file
+          really is everything. Drafts, event attachments and chat attachments
+          are all in there, bytes and all.
+        </p>
+      <% } else { %>
+        <p class="measure">
+          <span class="badge badge--warn"><%= fileCount %> file<%= fileCount === 1 ? '' : 's' %></span>
+          <span class="mono small muted"><%= Math.round(fileBytes / 1024 / 1024 * 10) / 10 %> MB</span>
+          — too much to fit in one download. Converting file bytes into text
+          costs this site a fixed amount of work per megabyte, and a single
+          request only gets a few milliseconds of it, so the files come down in
+          numbered parts instead. The main download above has everything else,
+          plus a list of exactly what is in each part.
+        </p>
+        <ul class="file-list">
+          <% fileParts.forEach(function (p) { %>
+            <li>
+              <a href="/admin/backup/files.sql?part=<%= p.part %>">Part <%= p.part %> of <%= fileParts.length %></a>
+              <span class="mono small muted">
+                <%= Math.max(1, Math.round(p.bytes / 1024)) %> KB
+              </span>
+              <% if (p.oversize) { %>
+                <span class="badge badge--warn">may time out</span>
+              <% } %>
+            </li>
+          <% }) %>
+        </ul>
+        <p class="hint hint--block">
+          Save every part alongside the main download. A restore needs all of
+          them.
+        </p>
+        <% if (fileParts.some(function (p) { return p.oversize; })) { %>
+          <p class="hint hint--block">
+            The parts marked <strong>may time out</strong> each hold one piece
+            of a file bigger than this site can turn into text in the few
+            milliseconds a single request is allowed. Try them — they often
+            work — but if one fails, the whole board (files included) can be
+            exported from a terminal by whoever holds the Cloudflare account,
+            with no such limit:
+          </p>
+          <pre class="mono small" style="overflow-x: auto;">npx wrangler d1 export afwc-board --remote --output afwc-full.sql</pre>
+          <p class="hint hint--block">
+            That single file is a complete backup on its own — nothing else on
+            this page is needed alongside it.
+          </p>
+        <% } %>
+      <% } %>
+      <p class="hint hint--block">
+        Files are kept for <strong><%= retentionDays %> days</strong> and then
+        cleaned up automatically — change that on the
+        <a href="/admin">dashboard</a>. Anything already cleaned up is gone
+        from the backups too, which is the other good reason to take one now
+        and then.
+      </p>
+    </div>
+
+    <div class="card">
+      <p class="eyebrow eyebrow--muted">To put it back</p>
+      <p class="measure">
+        Restoring needs a terminal, not a browser button — a one-time job for
+        whoever holds the group's Cloudflare account, and the reason the
+        repository's README carries the long version:
+      </p>
+      <pre class="mono small" style="overflow-x: auto;"># A local copy you can open and read:
+cat worker/migrations/*.sql afwc-backup-*.sql | sqlite3 restored.db
+
+# Back into the live board (careful — this writes to production):
+wrangler d1 execute afwc-board --remote --file afwc-backup-2026-08-08.sql</pre>
+      <p class="hint hint--block">
+        The migrations create the empty schema; the backup file fills it. Load
+        the main file first, then any file parts, in any order.
+      </p>
+    </div>
+
+    <div class="card">
+      <p class="eyebrow eyebrow--muted">The monthly check</p>
       <p>
         <% if (lastSnapshotAt) { %>
-          A copy is also written automatically to Cloudflare storage on the
-          1st of every month, whether or not anyone downloads one by hand.
+          On the 1st of each month this board checks itself over — how much it
+          is storing, whether anything looks off — and records the result.
           Most recent: <span class="badge badge--ok"><%= dates.relative(lastSnapshotAt) %></span>
           (<%= lastSnapshotMonth %>).
         <% } else { %>
@@ -46,43 +143,10 @@
         <% } %>
       </p>
       <p class="hint hint--block">
-        This is a belt-and-braces copy sitting alongside your own downloads,
-        not a replacement for them — it protects against nobody remembering
-        to click Download for months at a stretch, not against needing a
-        backup at all.
-      </p>
-    </div>
-
-    <div class="card">
-      <p class="eyebrow eyebrow--muted">The files themselves</p>
-      <p class="measure">
-        Uploaded drafts, off-site event attachments and chat attachments live
-        in Cloudflare's file storage (R2), organized the same way they always
-        were on disk:
-      </p>
-      <ul class="mono small">
-        <% r2Prefixes.forEach(function (prefix) { %>
-          <li><%= prefix %>…</li>
-        <% }) %>
-      </ul>
-      <p class="measure">
-        <span class="mono">backups/</span> is the automatic snapshots above,
-        each month's folder holding one file per database table plus a
-        <span class="mono">manifest.json</span> listing them.
-      </p>
-      <p class="measure">
-        Copying any of those in bulk needs a terminal, not a browser button —
-        a one-time setup for whoever holds the group's Cloudflare account, not
-        a monthly chore:
-      </p>
-      <pre class="mono small" style="overflow-x: auto;">wrangler r2 object get afwc-board-files/&lt;key&gt; --file ./out --remote
-
-# or the whole bucket, with rclone configured for an R2 access key:
-rclone copy r2:afwc-board-files ./local-backup</pre>
-      <p class="hint hint--block">
-        Account ID and R2 API token setup for those commands is in the
-        repository's README, not here — this page is the leader-facing half
-        of the backup story; the README is the developer-facing half.
+        It does <strong>not</strong> make a copy of anything. Nothing does,
+        except you, on this page. It exists so the numbers here stay fresh and
+        so a problem gets noticed by something other than a person going
+        looking for one.
       </p>
     </div>
 

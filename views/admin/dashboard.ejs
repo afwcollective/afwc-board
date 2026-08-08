@@ -250,5 +250,47 @@
         <button class="btn btn--sm" type="submit"><%= watermarkOn ? 'Turn off' : 'Turn on' %></button>
       </form>
     </div>
+
+    <%
+      /*
+       * FILE RETENTION — rendered only on the Cloudflare Worker stack, which
+       * stores uploaded files in its database and cleans them up on a schedule.
+       * The self-hosted Express app keeps files on a disk, forever, and never
+       * sets these locals, so it skips this card entirely and its dashboard is
+       * byte-for-byte what it always was. Same typeof-guard arrangement as
+       * backupHref just above and views/drafts/show.ejs's retryHint; proved in
+       * worker/build/view-parity.mjs.
+       */
+    %>
+    <% if (typeof retentionDays !== 'undefined') { %>
+      <div class="card">
+        <p class="eyebrow eyebrow--muted">How long files are kept</p>
+        <p class="measure">
+          Drafts, event attachments and chat attachments are stored in this
+          board’s database. To keep it from filling up over the years, files
+          older than the setting below are cleaned up automatically overnight.
+          When a draft’s files go, the draft leaves the library the same way it
+          would if someone removed it — its conversation and comments stay.
+          Chat messages and events stay put; only the attached file goes, and
+          it’s shown as expired where it used to be a link.
+        </p>
+        <p>
+          Currently
+          <span class="badge badge--ok"><%= retentionDays %> days</span>
+        </p>
+        <form method="post" action="/admin/settings/retention" class="inline-form">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <input class="inline-input" type="number" id="file_retention_days"
+                 name="file_retention_days" value="<%= retentionDays %>"
+                 min="<%= retentionMin %>" max="<%= retentionMax %>" step="1" inputmode="numeric"
+                 aria-label="Number of days to keep shared files">
+          <button class="btn btn--sm" type="submit">Save</button>
+        </form>
+        <p class="hint hint--block">
+          Anything from <%= retentionMin %> to <%= retentionMax %> days. A
+          number outside that range is adjusted to the nearest one allowed.
+        </p>
+      </div>
+    <% } %>
   </div>
 </section>

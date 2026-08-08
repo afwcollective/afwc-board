@@ -1,45 +1,59 @@
 /**
- * Chat attachments on R2 — the second application of THE R2 PATTERN written
- * down at the top of worker/src/services/events/attachments.js. The four rules,
- * and how this module keeps them:
+ * Chat attachments — the VALIDATION half; the bytes live in
+ * worker/src/services/filestore.js with everything else this app stores. The
+ * four rules are written out in their D1 form at the top of that file. This
+ * module's share of them:
  *
  * 1. KEYS ARE BUILT, NEVER ACCEPTED. `key(channelId, messageId, storedName)` is
- *    the only place a chat object key is composed, out of two validated
+ *    the only place a chat file's address is composed, out of two validated
  *    integers and a stored_name THIS module generated. A stored_name read back
  *    from D1 is re-tested against SAFE_STORED_NAME before it is used, so a
- *    hand-edited row cannot walk the bucket. Shape:
- *        chat/<channelId>/<messageId>/<stored_name>
- *    — the same three-level tree src/routes/chat.js kept on disk under
- *    uploads/chat/, minus the uploads/ segment a bucket has no use for.
+ *    hand-edited row cannot name somebody else's bytes.
  *
- * 2. THE BUCKET IS NEVER PUBLIC. Every byte leaves through
- *    GET /chat/files/:id, which RE-DERIVES channel access from the message's
- *    channel on each request and answers 404 — never 403 — to anyone who is not
- *    a participant. A URL copied out of a DM is dead the moment it reaches a
- *    third party, and it does not even admit the file exists.
+ *    THE ONE SHAPE CHANGE IN THE MOVE OFF R2. The object key was
+ *    chat/<channelId>/<messageId>/<stored_name> — the same three-level tree
+ *    src/routes/chat.js kept on disk under uploads/chat/. A filestore address
+ *    has room for one id, and the right one is the MESSAGE: chat_messages
+ *    already records which channel a message is in, so the channel in the key
+ *    was never carrying information, only path uniqueness. The address is
+ *    therefore ('chat', messageId, stored_name), and `key()` STILL demands and
+ *    validates the channel id its callers have always passed — dropping the
+ *    argument would have quietly removed a check from the one route in this app
+ *    whose privacy rule is load-bearing.
  *
- * 3. VALIDATE BEFORE YOU PUT. Extension → size → magic bytes (or a fatal UTF-8
- *    decode for the two formats that have no signature), all on the bytes in
- *    hand, and the caller writes NOTHING to R2 until every file in the message
- *    has passed. multer's declarative caps — 3 files, 10 MB each — become the
+ * 2. THE STORE IS NEVER PUBLIC. Every byte leaves through GET /chat/files/:id,
+ *    which RE-DERIVES channel access from the message's channel on each request
+ *    and answers 404 — never 403 — to anyone who is not a participant. A URL
+ *    copied out of a DM is dead the moment it reaches a third party, and it
+ *    does not even admit the file exists. Rows in a private database have no
+ *    URL of their own at all, so there is no other door and now there cannot
+ *    be one.
+ *
+ * 3. VALIDATE BEFORE YOU WRITE. Extension → size → magic bytes (or a fatal
+ *    UTF-8 decode for the two formats that have no signature), all on the bytes
+ *    in hand, and the caller writes NOTHING until every file in the message has
+ *    passed. multer's declarative caps — 3 files, 10 MB each — become the
  *    explicit checks in `limitError()` because there is no streaming parser
  *    here to enforce them for us; the complaint sentences are multer's, kept
  *    word for word because members read them.
  *
- * 4. D1 ROWS OWN THE OBJECTS. The message row is written first (its id names
- *    the folder, exactly as it named the directory before), then the objects,
+ * 4. ROWS OWN THE BYTES. The message row is written first (its id names the
+ *    file's address, exactly as it named the directory before), then the bytes,
  *    then the attachment rows. If anything in that tail fails, the caller
- *    unlinks whatever landed and hard-deletes the message — attachments
- *    cascade — so an object nobody can name never survives a failed send. A
- *    row whose object is missing answers 404 rather than exploding, which is
- *    what the fs.existsSync check did.
+ *    unlinks whatever landed and hard-deletes the message — chat_attachments
+ *    cascade — so nothing nobody can name survives a failed send. An attachment
+ *    row whose bytes are missing answers 404 rather than exploding, which is
+ *    what the fs.existsSync check did and what a file aged out by the retention
+ *    sweep now looks like from here.
  *
- * This is deliberately a separate copy of the idea rather than a generalization
- * of the events module: the two answer different questions (what may a LEADER
- * attach to an event vs. what may ANY MEMBER drop in a conversation) over
- * different allowlists, and folding them together would mean one edit could
- * quietly widen the other.
+ * The allowlist and the sniffing are deliberately a separate copy of the idea
+ * rather than a generalization of the events module: the two answer different
+ * questions (what may a LEADER attach to an event vs. what may ANY MEMBER drop
+ * in a conversation), and folding them together would mean one edit could
+ * quietly widen the other. Only the storage half was general enough to share.
  */
+
+import * as filestore from '../filestore.js';
 
 /** multer's `limits` from src/routes/chat.js, as explicit numbers. */
 export const MAX_FILES = 3;
@@ -159,19 +173,22 @@ export function makeStoredName(ext) {
   return `${rand}${clean}`;
 }
 
+/** The filestore scope every file in this module belongs to. */
+const SCOPE = 'chat';
+
 /**
- * The one place a chat object key is composed. Returns null when any part is
- * not something this module could have produced — the caller then 404s rather
- * than asking R2 a question built out of user input.
+ * The one place a chat file's address is composed. Returns the filestore
+ * triple, or null when any part is not something this module could have
+ * produced — the caller then 404s rather than asking the database a question
+ * built out of user input. See rule 1 in the header for why `channelId` is
+ * still demanded and validated even though the address is keyed by the message.
  */
 export function key(channelId, messageId, storedName) {
   const channel = Number(channelId);
-  const message = Number(messageId);
   if (!Number.isInteger(channel) || channel <= 0) return null;
-  if (!Number.isInteger(message) || message <= 0) return null;
   const name = String(storedName || '');
   if (!SAFE_STORED_NAME.test(name)) return null;
-  return `chat/${channel}/${message}/${name}`;
+  return filestore.fileKey(SCOPE, messageId, name);
 }
 
 /**
@@ -181,11 +198,10 @@ export function key(channelId, messageId, storedName) {
  */
 export async function store(env, channelId, messageId, file, bytes, ext) {
   const stored_name = makeStoredName(ext);
-  const objectKey = key(channelId, messageId, stored_name);
+  const address = key(channelId, messageId, stored_name);
+  if (!address) throw new Error(`refusing to store an unsafe chat file name: ${stored_name}`);
   const mime = ALLOWED[ext].mime;
-  await env.FILES.put(objectKey, bytes, {
-    httpMetadata: { contentType: mime, cacheControl: 'private, no-store, max-age=0' },
-  });
+  await filestore.put(env.DB, SCOPE, address.refId, address.storedName, mime, bytes);
   return {
     message_id: messageId,
     original_name: String(file.name || '').slice(0, 200),
@@ -195,20 +211,20 @@ export async function store(env, channelId, messageId, file, bytes, ext) {
   };
 }
 
-/** The object behind one attachment row, or null. Used by the stream route. */
-export function get(env, channelId, messageId, storedName) {
-  const objectKey = key(channelId, messageId, storedName);
-  if (!objectKey) return null;
-  return env.FILES.get(objectKey);
+/**
+ * The bytes behind one attachment row, as filestore's
+ * `{ status, headers, body }`, or null when the row names nothing. Used by the
+ * stream route.
+ */
+export function open(env, channelId, messageId, storedName, options) {
+  const address = key(channelId, messageId, storedName);
+  if (!address) return Promise.resolve(null);
+  return filestore.stream(env.DB, address, options);
 }
 
 /** Best-effort byte removal for one attachment row. */
 export async function unlinkStored(env, channelId, messageId, storedName) {
-  const objectKey = key(channelId, messageId, storedName);
-  if (!objectKey) return;
-  try {
-    await env.FILES.delete(objectKey);
-  } catch (err) {
-    console.error('[afwc] chat attachment delete failed:', err);
-  }
+  const address = key(channelId, messageId, storedName);
+  if (!address) return;
+  await filestore.remove(env.DB, SCOPE, address.refId, address.storedName);
 }

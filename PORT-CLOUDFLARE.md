@@ -6,6 +6,19 @@ The Express/SQLite app in `src/` stays intact and runnable until the port
 reaches feature parity; port work happens in the `worker/` directory on
 `main` (the two share `views/`, `public/`, and nothing else).
 
+> **AMENDED AFTER P6 — §4 AND §8 NO LONGER DESCRIBE THIS APP.** R2 is gone.
+> Enabling it on a Cloudflare account requires a payment method on file even at
+> $0 of usage, and this board is inherited along with a shared mailbox, so a
+> card cannot be part of the handover. Files moved into D1 as chunked BLOB rows
+> (`worker/migrations/0003_file_store.sql`, `worker/src/services/filestore.js`),
+> which brought a retention policy with them
+> (`worker/src/services/retention.js`) and rebuilt the backup story around the
+> leader's download rather than a monthly copy to a bucket
+> (`worker/src/services/backup.js`). README.md is the current description of all
+> three. Everything else below still holds; the paragraphs are left as written
+> because they are the record of how the port was planned, not a description of
+> what shipped.
+
 ## Architecture decisions (locked)
 
 1. **Router: Hono.** Express-like ergonomics; middleware chain mirrors

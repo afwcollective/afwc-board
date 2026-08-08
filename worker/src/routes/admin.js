@@ -52,6 +52,7 @@ import { getFormData, field } from '../util/body.js';
 import { render } from '../render.js';
 import { notFound } from './errors.js';
 import * as backup from '../services/backup.js';
+import * as retention from '../services/retention.js';
 
 const router = new Hono();
 
@@ -93,7 +94,7 @@ const BACKUP_STALE_MS = 30 * 24 * 3600e3;
 
 router.get('/', async (c) => {
   const db = c.env.DB;
-  const [meeting, lastBackupAt, memberOptions, memberCount, leaderCount, expiringLeaderCount, announcementCount, passcode, watermark] =
+  const [meeting, lastBackupAt, memberOptions, memberCount, leaderCount, expiringLeaderCount, announcementCount, passcode, watermark, retentionDays] =
     await Promise.all([
       meetings.nextUnified(db),
       getSetting(db, 'last_backup_at', null),
@@ -106,6 +107,7 @@ router.get('/', async (c) => {
       announcements.countUpTo(db, 100),
       getSetting(db, 'group_passcode_hash'),
       getSetting(db, 'watermark_on', '1'),
+      retention.retentionDays(db),
     ]);
 
   const backupStale = !lastBackupAt || Date.now() - new Date(lastBackupAt).getTime() > BACKUP_STALE_MS;
@@ -132,6 +134,16 @@ router.get('/', async (c) => {
     // page, not a direct file download — see the "backup" section below.
     backupHref: '/admin/backup',
     backupLabel: 'Backup options',
+    /*
+     * Three more Worker-only locals on the shared dashboard, same typeof-guard
+     * arrangement as backupHref/backupLabel above and P4's retryHint: the
+     * Express app keeps uploaded files forever and has no retention card at
+     * all, so views/admin/dashboard.ejs renders that card only when these are
+     * set. See worker/build/view-parity.mjs's dashboard variants.
+     */
+    retentionDays,
+    retentionMin: retention.MIN_DAYS,
+    retentionMax: retention.MAX_DAYS,
   });
 });
 
@@ -147,6 +159,34 @@ router.post('/settings/watermark', async (c) => {
     on
       ? 'Watermark turned off. Reader pages no longer show the viewer’s name.'
       : 'Watermark turned on. Reader pages now show a faint tag of the viewer’s name.'
+  );
+  return c.redirect('/admin', 302);
+});
+
+/* --------------------------------------------------- file retention -------
+ *
+ * The one setting on this page that DELETES things, so it clamps rather than
+ * validates-and-complains: whatever a leader types, what gets stored is a
+ * number between retention.MIN_DAYS and retention.MAX_DAYS, and the flash says
+ * what was actually saved. A typo'd "3" becomes 30, not "every file you have,
+ * gone tonight". The policy itself — what expiry MEANS for a draft versus a
+ * chat attachment — is written down in worker/src/services/retention.js.
+ */
+
+router.post('/settings/retention', async (c) => {
+  const db = c.env.DB;
+  const raw = field(await formBody(c), 'file_retention_days');
+  const days = retention.clampDays(raw, await retention.retentionDays(db));
+  await setSetting(db, 'file_retention_days', String(days));
+
+  const asked = Math.round(Number(raw));
+  const clamped = Number.isFinite(asked) && asked !== days;
+  flash(
+    c,
+    'info',
+    clamped
+      ? `Shared files are now kept for ${days} days. (${asked} is outside the ${retention.MIN_DAYS}–${retention.MAX_DAYS} day range, so it was adjusted to the nearest allowed setting.)`
+      : `Shared files are now kept for ${days} days, then cleaned up automatically.`
   );
   return c.redirect('/admin', 302);
 });
@@ -1279,38 +1319,54 @@ router.post('/members/:id/reset-code', async (c) => {
  * uploads/ tree. Workers has neither a filesystem nor a synchronous database
  * snapshot, and building a zip is exactly the kind of CPU work
  * PORT-CLOUDFLARE.md §6 moved off this stack for ingest — so the export here
- * is a from-scratch SQL dump (worker/src/services/backup.js) plus an R2
- * manifest, and "click a link, get a file" becomes "open a page, then choose."
+ * is a from-scratch SQL dump (worker/src/services/backup.js), and "click a
+ * link, get a file" becomes "open a page, then choose."
  *
  * /admin/backup.zip ITSELF STILL EXISTS, forwarding to the real page — the
  * shared dashboard view has pointed at that exact URL since before this stack
  * existed (views/admin/help.ejs's handbook remembers it too), and a stale
  * bookmark or a leader's muscle memory should land somewhere useful rather
  * than 404. The dashboard card's own link is the guarded `backupHref` local
- * two routes up, which points straight at /admin/backup and skips the hop.
+ * near the top of this file, which points straight at /admin/backup.
  *
- * lastBackupAt vs lastSnapshotAt — the split this file promised P5:
- *   - last_backup_at is a LEADER'S action (this file, GET
- *     /admin/backup/download.sql) and is what the dashboard's 30-day nag
- *     reads, unchanged from Express — a leader who never downloads anything
- *     still sees the warning, exactly as before, even though the cron
- *     snapshot below is quietly happening regardless.
- *   - last_snapshot_at is the CRON's own record (worker/src/scheduled.js),
- *     surfaced on /admin/backup as "also backed up automatically" but never
- *     substituted for last_backup_at — the nag is a nudge to a human, and a
- *     robot running on schedule doesn't relieve a leader of ever checking in.
+ * WHAT CHANGED WITH THE FILE STORE. There is no R2 bucket any more, so there
+ * is no automatic second copy and no fallback to one. Two consequences here:
+ *
+ *   1. THE DUMP CAN FINALLY BE COMPLETE. The files are rows now, so a database
+ *      backup can contain the draft originals, the page images and the
+ *      attachments — which the R2-era dump never could. Whether it does depends
+ *      on how much there is: hex-encoding blobs costs ~5.7 ms/MB against a
+ *      ~10 ms request budget, so a small store goes in the main file and a
+ *      larger one is downloaded as numbered PARTS. The page tells the leader
+ *      which of those two worlds they are in, in words. See the CPU BUDGET
+ *      section of worker/src/services/backup.js for the measurement.
+ *   2. THE OLD "too slow → serve last month's snapshot" FALLBACK IS GONE,
+ *      because there is nothing to fall back to. Its job is done instead by the
+ *      pagination above, which is a better answer anyway: a leader gets THIS
+ *      board, today, in pieces, rather than a stale copy of it whole.
+ *
+ * lastBackupAt vs lastSnapshotAt — the split P5 drew, with one honest
+ * relabelling:
+ *   - last_backup_at is a LEADER'S action (GET /admin/backup/download.sql) and
+ *     is what the dashboard's 30-day nag reads, unchanged from Express.
+ *   - last_snapshot_at is the monthly cron's record. It no longer means "a copy
+ *     was made" — nothing copies anything now — it means "the automatic check
+ *     ran and the numbers on this page are that fresh". The page says so.
  */
 
 router.get('/backup.zip', (c) => c.redirect('/admin/backup', 301));
 
 router.get('/backup', async (c) => {
   const db = c.env.DB;
-  const [lastBackupAt, lastSnapshotAt, lastSnapshotMonth] = await Promise.all([
+  const [lastBackupAt, lastSnapshotAt, lastSnapshotMonth, files] = await Promise.all([
     getSetting(db, 'last_backup_at', null),
     getSetting(db, 'last_snapshot_at', null),
     getSetting(db, 'last_snapshot_month', null),
+    backup.fileStoreSummary(db),
   ]);
   const backupStale = !lastBackupAt || Date.now() - new Date(lastBackupAt).getTime() > BACKUP_STALE_MS;
+  const parts = files.fitsInline ? [] : await backup.planFileParts(db);
+  const retentionDays = await retention.retentionDays(db);
 
   return render(c, 'admin/backup', {
     title: 'Backups',
@@ -1320,79 +1376,103 @@ router.get('/backup', async (c) => {
     backupStale,
     lastSnapshotAt,
     lastSnapshotMonth,
-    r2Prefixes: backup.R2_PREFIXES,
+    fileCount: files.files,
+    fileBytes: files.bytes,
+    filesInline: files.fitsInline,
+    fileParts: parts,
+    retentionDays,
   });
 });
 
 /**
- * The CPU budget this route respects. dumpTable's stringify loop is the only
- * synchronous cost (see worker/src/services/backup.js's header) — measured
- * locally against the seeded dev database it comes in far under this, but the
- * check is here, live, rather than trusted from a one-time measurement,
- * because it is the group's OWN data being dumped, not the fixture's, and a
- * board that grows for years should keep degrading gracefully instead of
- * eventually failing a request outright. 8ms leaves headroom under the
- * ~10ms/request ceiling the Workers free plan gives every other route in this
- * app for the rest of what a request does (session lookup, rendering).
+ * The CPU budget this route reports against. The synchronous cost of a dump is
+ * dumpTable's stringify loop plus, when the file store is small enough to
+ * inline, the hex encoder — see worker/src/services/backup.js's CPU BUDGET
+ * section for both measurements. 8 ms leaves headroom under the ~10 ms/request
+ * ceiling the free plan gives every other route in this app for the rest of
+ * what a request does (session lookup, rendering).
+ *
+ * Nothing is REFUSED for exceeding it: the decision that keeps a dump cheap is
+ * made before it is built (inline vs. parts), not after. What this constant
+ * does is put a loud line in the logs if a real board ever measures past it, so
+ * the constants above it can be retuned against evidence rather than a guess.
  */
 const BACKUP_CPU_BUDGET_MS = 8;
 
 router.get('/backup/download.sql', async (c) => {
   const db = c.env.DB;
-  const snapshot = await backup.buildSnapshot(db);
+  const files = await backup.fileStoreSummary(db);
+  const snapshot = await backup.buildSnapshot(db, { includeFileBlobs: files.fitsInline });
+  const extra = files.fitsInline || !files.files
+    ? ''
+    : await backup.fileManifestComment(db, await backup.planFileParts(db));
   const stamp = new Date().toISOString().slice(0, 10);
-
-  let body;
-  let filename;
-  let sourceHeader;
-  if (snapshot.cpuMs > BACKUP_CPU_BUDGET_MS) {
-    // Too expensive to build live right now — serve the latest monthly cron
-    // snapshot instead of risking a mid-request CPU-limit kill. See the P5
-    // report for the measured number that set the threshold above.
-    const month = await getSetting(db, 'last_snapshot_month', null);
-    if (!month) {
-      return c.text(
-        'A live backup would take longer than this page allows to build, and no automatic ' +
-          'monthly snapshot has run yet to fall back to. Try again after the 1st of the month, ' +
-          'or ask a developer to trigger one early with `wrangler`.',
-        503
-      );
-    }
-    const fallback = await backup.readSnapshotFromR2(c.env, month);
-    body = fallback.text;
-    filename = `afwc-backup-snapshot-${month}.sql`;
-    sourceHeader = `cron-snapshot-${month}`;
-  } else {
-    body = backup.combineSnapshot(snapshot);
-    filename = `afwc-backup-${stamp}.sql`;
-    sourceHeader = 'live';
-  }
+  const body = backup.combineSnapshot(snapshot, extra);
 
   await setSetting(db, 'last_backup_at', new Date().toISOString());
+  const source = files.fitsInline ? 'live-with-files' : 'live-metadata-only';
   console.log(
-    `[afwc] leader backup download (${sourceHeader}): ${snapshot.tables.length} table(s), ` +
-      `cpu~${snapshot.cpuMs.toFixed(2)}ms`
+    `[afwc] leader backup download (${source}): ${snapshot.tables.length} table(s), ` +
+      `${files.files} stored file(s)/${files.bytes} bytes, cpu~${snapshot.cpuMs.toFixed(2)}ms` +
+      (snapshot.cpuMs > BACKUP_CPU_BUDGET_MS ? ` — OVER the ${BACKUP_CPU_BUDGET_MS}ms budget` : '')
   );
 
   return new Response(body, {
     status: 200,
     headers: {
       'Content-Type': 'application/sql; charset=utf-8',
-      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Disposition': `attachment; filename="afwc-backup-${stamp}.sql"`,
       'Cache-Control': 'private, no-store, max-age=0',
-      'X-Backup-Source': sourceHeader,
+      'X-Backup-Source': source,
       'X-Backup-Cpu-Ms': snapshot.cpuMs.toFixed(2),
+    },
+  });
+});
+
+/**
+ * One part of the file bytes, for a store too large to inline. The part number
+ * is an index into the plan the backup page computed and rendered; an unknown
+ * one is a 404 rather than an empty file, because a leader following the page's
+ * links can only ever ask for one that exists, and anything else is a typo that
+ * should say so.
+ */
+router.get('/backup/files.sql', async (c) => {
+  const db = c.env.DB;
+  const wanted = Number(c.req.query('part'));
+  const parts = await backup.planFileParts(db);
+  const plan = parts.find((p) => p.part === wanted);
+  if (!plan) return notFound(c);
+
+  const { text, cpuMs, rows } = await backup.dumpFilePart(db, plan);
+  console.log(
+    `[afwc] leader backup file part ${plan.part}/${parts.length}: ${rows} chunk row(s), ` +
+      `${plan.bytes} bytes, cpu~${cpuMs.toFixed(2)}ms` +
+      (cpuMs > BACKUP_CPU_BUDGET_MS ? ` — OVER the ${BACKUP_CPU_BUDGET_MS}ms budget` : '')
+  );
+
+  return new Response(text, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/sql; charset=utf-8',
+      'Content-Disposition': `attachment; filename="afwc-backup-files-${plan.part}-of-${parts.length}.sql"`,
+      'Cache-Control': 'private, no-store, max-age=0',
+      'X-Backup-Source': `files-part-${plan.part}`,
+      'X-Backup-Cpu-Ms': cpuMs.toFixed(2),
     },
   });
 });
 
 /* ------------------------------------------------------------------ help */
 
-router.get('/help', (c) =>
+router.get('/help', async (c) =>
   render(c, 'admin/help', {
     title: 'Leader handbook',
     bodyClass: 'page-admin',
     pageCss: ['/css/admin.css'],
+    // Worker-only local; see the guard in views/admin/help.ejs's Backups
+    // section. Express keeps files forever and zips a disk, and its half of
+    // that section is what renders when this is absent.
+    retentionDays: await retention.retentionDays(c.env.DB),
   })
 );
 

@@ -414,6 +414,49 @@
 
     <article class="handbook-section" id="backups">
       <h2>Backups</h2>
+      <%
+        /*
+         * `retentionDays` is set ONLY by the Cloudflare Worker stack. That
+         * board keeps everything — including uploaded files — in one managed
+         * database, so its backup is a .sql download rather than a zip of a
+         * disk, and it cleans files up on a schedule. The self-hosted Express
+         * app below keeps a real filesystem and keeps files forever; it never
+         * sets this local, so the typeof guard skips this block and its
+         * handbook reads exactly as it always did. Same arrangement as
+         * views/drafts/show.ejs's retryHint; proved in
+         * worker/build/view-parity.mjs.
+         */
+      %>
+      <% if (typeof retentionDays !== 'undefined') { %>
+        <p>
+          Click <strong>Backup options</strong> on the
+          <a href="/admin">admin dashboard</a> once a month or so — right after
+          a meeting is an easy habit to build. That page has one button, and
+          what it downloads is the whole board: every member, post,
+          announcement, meeting, draft and comment, plus the uploaded files
+          themselves, as a plain-text <span class="mono">.sql</span> file.
+          Nothing is copied anywhere else automatically — <strong>your download
+          is the backup</strong>. Keep a couple of recent ones somewhere that
+          isn't this site.
+        </p>
+        <p>
+          Uploaded files — drafts, off-site event attachments, chat attachments
+          — are kept for <strong><%= retentionDays %> days</strong> and then
+          cleaned up automatically overnight, so the database doesn't grow
+          forever. You can change that number on the dashboard. When a draft's
+          files are cleaned up the draft leaves the library the same way it
+          would if someone removed it, and its conversation stays; chat
+          messages and events keep their place and simply show the attachment
+          as expired.
+        </p>
+        <p>
+          The dashboard shows how long it's been since the last backup and
+          turns an amber warning color once it's been over 30 days (or if one
+          has never been taken) — a nudge, not an alarm. Restoring is a
+          slightly technical, copy-paste job; the Backups page and the
+          project's <span class="mono">README.md</span> both spell it out.
+        </p>
+      <% } else { %>
       <p>
         Click <strong>Download backup</strong> on the
         <a href="/admin">admin dashboard</a> once a month or so — right after a
@@ -456,6 +499,7 @@
         commands. It's rare enough that it isn't worth automating into a
         button, but it's a handful of copy-paste steps, not a rebuild.
       </p>
+      <% } %>
     </article>
 
     <article class="handbook-section" id="protection">

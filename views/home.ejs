@@ -129,12 +129,29 @@
               <% if (eventAttachments.length) { %>
                 <p class="eyebrow eyebrow--muted">Attachments</p>
                 <ul class="file-list">
+                  <%
+                    /*
+                     * `f.expired` is set ONLY by the Cloudflare Worker stack,
+                     * which keeps shared files for a year and then cleans them
+                     * up. The Express app keeps them forever and never sets it,
+                     * so the typeof guard takes the else branch there and the
+                     * rendered list is byte-for-byte what it always was — the
+                     * same arrangement views/drafts/show.ejs uses for retryHint.
+                     * The event itself is untouched either way; only the file
+                     * behind the link is gone.
+                     */
+                  %>
                   <% eventAttachments.forEach(function (f) { %>
                     <li>
-                      <a href="/events/<%= f.meeting_id %>/files/<%= f.id %>" target="_blank" rel="noopener">
-                        <%= f.original_name || 'Attachment' %>
-                      </a>
-                      <span class="mono small muted"><%= Math.max(1, Math.round((f.size || 0) / 1024)) %> KB</span>
+                      <% if (typeof f.expired !== 'undefined' && f.expired) { %>
+                        <span class="muted"><%= f.original_name || 'Attachment' %></span>
+                        <span class="mono small muted">expired</span>
+                      <% } else { %>
+                        <a href="/events/<%= f.meeting_id %>/files/<%= f.id %>" target="_blank" rel="noopener">
+                          <%= f.original_name || 'Attachment' %>
+                        </a>
+                        <span class="mono small muted"><%= Math.max(1, Math.round((f.size || 0) / 1024)) %> KB</span>
+                      <% } %>
                     </li>
                   <% }) %>
                 </ul>

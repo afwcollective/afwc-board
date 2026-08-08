@@ -1,78 +1,187 @@
 /**
- * D1 → R2 backup story for the Worker stack — PORT-CLOUDFLARE.md §8, built out
- * in P5. The port of src/services/backup.js, but a different shape, because a
- * Worker has neither of the two things that made the Node version simple:
- * better-sqlite3's synchronous `db.backup()` (a consistent file-copy in one
- * call) and a filesystem to zip alongside it. What replaces both is a SQL dump
- * built from scratch by reading every table through the normal D1 query
- * interface and writing plain `INSERT` statements — restoring is `sqlite3
- * fresh.db < dump.sql` after creating the schema from worker/migrations/.
+ * THE BACKUP STORY — PORT-CLOUDFLARE.md §8, rebuilt for a world with no R2.
  *
- * TWO CALLERS SHARE buildSnapshot():
- *   - the monthly Cron Trigger (worker/src/scheduled.js) writes the result to
- *     R2 under backups/YYYY-MM/ and records settings.last_snapshot_at;
- *   - a leader's on-demand download (worker/src/routes/admin.js GET
- *     /admin/backup/download.sql) builds the same thing live and records
- *     settings.last_backup_at — see BACKUP-STORY UX in the P5 report for why
- *     these are two different settings keys with two different triggers.
+ * Through P5 there were two copies of the database: one a leader downloaded
+ * from /admin/backup, and one a monthly Cron Trigger wrote into R2 under
+ * backups/YYYY-MM/. The bucket is gone (worker/migrations/0003_file_store.sql
+ * explains why: enabling R2 requires a payment method on file, and a board
+ * handed on with a shared mailbox cannot inherit one), and with it the second
+ * copy. So the honest sentence, which the /admin/backup page now says out loud:
+ *
+ *     THE LEADER'S DOWNLOAD IS THE BACKUP.
+ *
+ * There is no longer any off-site copy this app makes for itself. Cloudflare
+ * keeps D1 durable and replicated, which protects against hardware; it does not
+ * protect against somebody deleting the wrong thing, or against the account
+ * itself going away. The only thing that does is a file on somebody's laptop,
+ * and the only way one gets there is a leader clicking Download. The monthly
+ * cron survives as a REMINDER rather than a copier — it refreshes the integrity
+ * report and stamps settings.last_snapshot_at so the dashboard's staleness nag
+ * has something honest to compare against.
+ *
+ * WHAT A BACKUP IS. A from-scratch SQL dump: every application table read
+ * through the normal D1 query interface and written out as plain INSERT
+ * statements. Restoring is `sqlite3 fresh.db < worker/migrations/*.sql` then
+ * this file. That has not changed. What is new is that THE FILES ARE IN THE
+ * DATABASE NOW, so a database dump can finally be a complete backup — draft
+ * originals, page images, event and chat attachments and all — where the R2
+ * version could only ever be half of one.
  *
  * -------------------------------------------------------------- CPU BUDGET --
- * D1 reads are network I/O and do not count against a Worker's CPU-time
- * limit; only the SYNCHRONOUS work of turning rows into escaped SQL text
- * does. dumpTable() below measures exactly that — the loop that stringifies
- * each batch, with the `await` on the D1 call excluded — with
- * `performance.now()`, and the total comes back on `snapshot.cpuMs`.
  *
- * Measured locally against the seeded dev database (worker/build/seed.mjs:
- * a handful of members, meetings, announcements, three seed drafts, a couple
- * of threads and chat channels — the realistic size of one club's board) the
- * whole-database dump costs low single-digit milliseconds of synchronous
- * time. The exact number from that run is in the P5 report.
+ * That completeness has a price, and it is the only genuinely hard engineering
+ * decision in this file, so here are the measurements rather than a hand-wave.
  *
- * TWO independent things keep that true as the group's data grows, not one:
- *   1. PER-TABLE OBJECTS. The snapshot is never one giant file — each table
- *      gets its own R2 object (or several, see MAX_OBJECT_BYTES below), so no
- *      single invocation's synchronous cost is coupled to the SIZE OF THE
- *      WHOLE DATABASE, only to whichever table is currently being dumped.
- *   2. BATCH_ROWS. Each table is read `BATCH_ROWS` rows at a time — the
- *      stringify-and-append loop for one batch is the actual unit of
- *      synchronous work; between batches, control returns to the event loop
- *      only in the sense that the next `await` (the next SELECT) can start,
- *      which does not reset the CPU-time clock but does mean a slow table can
- *      be seen growing in size (and, if ever needed, made to flush a chunk
- *      early) rather than being one opaque block of work.
+ * D1 reads are network I/O and do not count against a Worker's CPU-time limit;
+ * only the SYNCHRONOUS work of turning rows into escaped SQL text does. For
+ * text rows that is cheap — the whole of this app's non-file data measures
+ * around a millisecond. For BLOB rows it is not: a blob has to become an X'…'
+ * hex literal, which is two output characters per input byte.
  *
- * If a single table's dump ever measured close to the ~10ms/request budget on
- * the free plan in real use — which would mean a table with many thousands of
- * rows of wide text, not anything this app's schema produces today — the fix
- * is smaller BATCH_ROWS (more, cheaper D1 round trips, same total data) before
- * anything more drastic. Nothing here assumes a table fits in one object:
- * splitChunks() below caps every object at MAX_OBJECT_BYTES regardless of
- * table size, so a table split three ways would just as automatically split
- * five ways at ten times the row count.
+ * MEASURED, with the encoder below — a 256-entry code-point table into a
+ * Uint16Array, then String.fromCharCode in 32 K windows, with the D1 row handed
+ * through uncopied (see asBytes). Per megabyte of blob:
  *
- * The on-demand route additionally checks the MEASURED number for the request
- * that just ran and falls back to serving the latest cron snapshot instead of
- * ever returning a slow response — see CPU_BUDGET_MS in
- * worker/src/routes/admin.js.
+ *     plain Node (V8, same code, best of eight)      ~5.7 ms
+ *     workerd, `wrangler dev --local`, per 1 MB part  7–31 ms across runs
+ *
+ * THAT SPREAD IS NOT NOISE IN THE ENCODER, IT IS THE CLOCK. workerd advances
+ * `performance.now()` only at I/O boundaries, so a measurement taken around a
+ * purely synchronous stretch inside a request is coarse and run-dependent: the
+ * same part measured 8 ms in one run and 29 ms in the next, with identical
+ * bytes and identical wall time. Treat the top of that range as the number and
+ * the bottom as luck.
+ *
+ * The free plan gives a request about 10 MS OF CPU IN TOTAL. Sized against the
+ * pessimistic end, that is roughly a THIRD of a megabyte per request, and every
+ * decision in this file falls out of that one fact:
+ *
+ *   · A SMALL STORE GOES IN THE MAIN DUMP. If everything the board is holding
+ *     fits in INLINE_BLOB_BUDGET_BYTES (128 KB ≈ 3.7 ms), the download is one
+ *     file and it contains everything. For this group's actual usage — mostly
+ *     sub-megabyte prose drafts and a few small images — that is the normal
+ *     case, and one file that restores the whole board is worth a lot.
+ *
+ *   · A LARGER STORE IS PAGINATED, NOT SILENTLY DROPPED. Past that, the main
+ *     dump carries every table INCLUDING stored_files (that metadata is text,
+ *     costs nothing, and is exactly what somebody checking a restore needs) but
+ *     not file_chunks. It says so in a comment block nobody can miss, lists
+ *     every file with its size, and carries the SQL to verify a restore. The
+ *     bytes come down as numbered parts, PART_BLOB_BYTES of blob each, from
+ *     /admin/backup/files.sql?part=N. Restore is migrations, then the main
+ *     dump, then every part — the page and the comment block both spell it out.
+ *
+ *   · A FILE BIGGER THAN A PART CANNOT BE PAGINATED FURTHER, AND WE SAY SO.
+ *     Parts are planned in CHUNK ROWS and a chunk row cannot be split across
+ *     two valid SQL files, so a file large enough to have full chunk rows
+ *     (filestore's CHUNK_BYTES, 1,000,000) produces a part measuring 8–30 ms
+ *     — up to three times the free-plan budget. Such a part is FLAGGED as
+ *     `oversize` in the plan, rendered with a warning on /admin/backup, in the
+ *     comment block, and pointed at the tool that has no CPU limit at all:
+ *
+ *         npx wrangler d1 export afwc-board --remote --output afwc-full.sql
+ *
+ *     That is Cloudflare's own server-side export; it produces a complete dump,
+ *     blobs included, without a Worker being involved. The README documents it
+ *     as the developer-grade full backup. The in-app download stays the
+ *     leader-grade one, and it is complete for the board this app is for.
+ *
+ * Three alternatives were considered and rejected in the open: dropping blobs
+ * entirely with only a manifest (a "backup" that cannot restore the thing the
+ * board exists to hold is not a backup); letting a part end mid-INSERT so parts
+ * could be any size (works if you `cat` them in order, syntax error if you
+ * don't — too sharp an edge to hand a volunteer); and reassembling split blobs
+ * in SQL with `||` (SQLite coerces the operands to TEXT, and betting a backup
+ * on how a particular SQLite build handles invalid UTF-8 is not a bet worth
+ * making).
+ *
+ * Nothing here is trusted from the measurements above: every download reports the
+ * cost of what it actually built on an X-Backup-Cpu-Ms header, so the first
+ * real production download tells the truth about production.
  */
 
-import { all } from '../db.js';
+import { all, one } from '../db.js';
 
-/** Rows fetched (and stringified) per D1 round trip, per table. */
+/** Rows fetched (and stringified) per D1 round trip, for text tables. */
 export const BATCH_ROWS = 200;
 
-/** A snapshot object is split into another file past this many characters. */
-export const MAX_OBJECT_BYTES = 4 * 1024 * 1024;
+/**
+ * How much blob the MAIN dump will carry inline. 128 KB ≈ 3.7 ms at the
+ * pessimistic measured rate, leaving the rest of the ~10 ms request budget for
+ * the other tables, the session lookup and the response. Below this, a backup
+ * is one file — which is the case that matters, because it is the one this
+ * board will actually be in.
+ */
+export const INLINE_BLOB_BUDGET_BYTES = 128 * 1024;
 
 /**
- * The R2 prefixes this app writes to, restated here (also documented in
- * worker/wrangler.toml) for the manifest and the leader-facing backup page —
- * one source of truth for "what's in the bucket besides the database."
+ * How much blob ONE PART carries: 256 KB ≈ 7.4 ms at the measured rate, which
+ * fits the free plan's ~10 ms with something left for the rest of the request.
+ * Deliberately far below filestore's CHUNK_BYTES — a part made of ordinary
+ * small files is comfortably inside the budget, and a chunk row too big to fit
+ * is flagged rather than pretended about. See the header's third bullet.
  */
-export const R2_PREFIXES = ['drafts/', 'events/', 'chat/', 'backups/'];
+export const PART_BLOB_BYTES = 256 * 1024;
+
+/** The table whose rows are blobs. Everything else here is text. */
+const BLOB_TABLE = 'file_chunks';
 
 /* ---------------------------------------------------------- SQL escaping -- */
+
+/** Two-character hex code points for every byte value, as one flat table. */
+const HEX_CODES = new Uint16Array(512);
+for (let i = 0; i < 256; i += 1) {
+  const pair = i.toString(16).padStart(2, '0');
+  HEX_CODES[i * 2] = pair.charCodeAt(0);
+  HEX_CODES[i * 2 + 1] = pair.charCodeAt(1);
+}
+
+/** Characters per String.fromCharCode call. Larger blows the argument limit. */
+const FROM_CHAR_WINDOW = 32768;
+
+/** Bytes → the hex body of an X'…' literal. See CPU BUDGET in the header. */
+function hexOf(bytes) {
+  const n = bytes.length;
+  const codes = new Uint16Array(n * 2);
+  for (let i = 0, j = 0; i < n; i += 1) {
+    const at = bytes[i] * 2;
+    codes[j] = HEX_CODES[at];
+    codes[j + 1] = HEX_CODES[at + 1];
+    j += 2;
+  }
+  const parts = [];
+  for (let i = 0; i < codes.length; i += FROM_CHAR_WINDOW) {
+    parts.push(String.fromCharCode.apply(null, codes.subarray(i, Math.min(i + FROM_CHAR_WINDOW, codes.length))));
+  }
+  return parts.join('');
+}
+
+/**
+ * D1 hands BLOBs back as an Array of numbers, an ArrayBuffer or a typed-array
+ * view, depending on the runtime. hexOf() only needs `.length` and indexed byte
+ * access, both of which a plain Array already provides — so an Array is handed
+ * straight through rather than copied into a Uint8Array first. That copy is not
+ * free at this size: converting a million-element JS array measured as a real
+ * fraction of a part's cost when this was first benchmarked, for no benefit.
+ */
+function asBytes(value) {
+  if (Array.isArray(value) || value instanceof Uint8Array) return value;
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  return Uint8Array.from(value);
+}
+
+/**
+ * INSERT OR REPLACE, not INSERT, everywhere in this file — a deliberate choice
+ * with one concrete reason. worker/migrations/0003_file_store.sql SEEDS a
+ * settings row (file_retention_days), so a restore that ran the migrations and
+ * then a plain `INSERT INTO settings` would die on the primary key before it
+ * reached the rest of the file. More generally: a dump replayed onto a schema
+ * that already carries a seeded row, or replayed twice, should converge on the
+ * dump's version of reality rather than abort halfway. Verified end to end by
+ * the restore drill in this phase's report.
+ */
+const INSERT = 'INSERT OR REPLACE INTO';
 
 /** A D1 row value, as a literal that can sit inside a hand-written INSERT. */
 function sqlLiteral(v) {
@@ -80,11 +189,8 @@ function sqlLiteral(v) {
   if (typeof v === 'number') return Number.isFinite(v) ? String(v) : 'NULL';
   if (typeof v === 'bigint') return v.toString();
   if (typeof v === 'boolean') return v ? '1' : '0';
-  if (v instanceof ArrayBuffer || ArrayBuffer.isView(v)) {
-    const bytes = v instanceof ArrayBuffer ? new Uint8Array(v) : new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
-    let hex = '';
-    for (const b of bytes) hex += b.toString(16).padStart(2, '0');
-    return `X'${hex}'`;
+  if (v instanceof ArrayBuffer || ArrayBuffer.isView(v) || Array.isArray(v)) {
+    return `X'${hexOf(asBytes(v))}'`;
   }
   return `'${String(v).replace(/'/g, "''")}'`;
 }
@@ -119,14 +225,184 @@ async function tableColumns(db, table) {
   return rows.map((r) => r.name);
 }
 
-/** Split `text` into chunks no larger than MAX_OBJECT_BYTES, on line boundaries. */
-function splitChunks(text) {
-  if (text.length <= MAX_OBJECT_BYTES) return text ? [text] : [];
+/* ------------------------------------------------------- the file store --- */
+
+/** How many files the store holds and how many bytes they add up to. */
+export async function fileStoreSummary(db) {
+  const row = await one(
+    db,
+    'SELECT COUNT(*) AS files, COALESCE(SUM(size), 0) AS bytes FROM stored_files'
+  );
+  const files = row ? Number(row.files) : 0;
+  const bytes = row ? Number(row.bytes) : 0;
+  return { files, bytes, fitsInline: bytes <= INLINE_BLOB_BUDGET_BYTES, parts: 0 };
+}
+
+/**
+ * The download plan for a file store too big to inline: a list of parts, each
+ * covering a contiguous run of CHUNK ROWS worth at most PART_BLOB_BYTES.
+ *
+ * PARTS ARE PLANNED IN CHUNKS, NOT IN FILES, and that is the correction this
+ * phase's verification forced. Planning by file meant one 10 MB draft became one
+ * 10 MB part, which measured 93 ms of CPU — nine times the budget the whole
+ * scheme exists to respect. A chunk row is bounded by filestore's CHUNK_BYTES,
+ * so planning in chunks bounds a part no matter how big any single file is.
+ *
+ * The planning query reads `length(data)`, not `data`: SQLite answers that from
+ * the row header without materialising the blob, so building the plan is cheap
+ * even for a store far larger than one request could ever dump.
+ */
+export async function planFileParts(db) {
+  const rows = await all(
+    db,
+    'SELECT file_id, chunk_no, length(data) AS n FROM file_chunks ORDER BY file_id, chunk_no'
+  );
+  const parts = [];
+  let current = null;
+  for (const row of rows) {
+    const size = Number(row.n) || 0;
+    if (!current || (current.bytes > 0 && current.bytes + size > PART_BLOB_BYTES)) {
+      current = {
+        part: parts.length + 1,
+        fromFile: row.file_id,
+        fromChunk: row.chunk_no,
+        toFile: row.file_id,
+        toChunk: row.chunk_no,
+        rows: 0,
+        bytes: 0,
+      };
+      parts.push(current);
+    }
+    current.toFile = row.file_id;
+    current.toChunk = row.chunk_no;
+    current.rows += 1;
+    current.bytes += size;
+    // One chunk row that on its own exceeds a part. It still gets a part (it is
+    // better to offer it and let the measured header tell the truth than to
+    // hide it), but everything downstream labels it — see the header's third
+    // bullet and the warning on /admin/backup.
+    current.oversize = current.bytes > PART_BLOB_BYTES;
+  }
+  return parts;
+}
+
+/**
+ * Dumps the file_chunks rows belonging to ONE part. Rows are read one at a time
+ * — each is up to a megabyte, and asking for two hundred of them the way
+ * dumpTable() asks for text rows would try to move a couple of hundred
+ * megabytes through one response.
+ *
+ * The stored_files METADATA is not here; it is in the main dump, where it costs
+ * nothing (see buildSnapshot). That keeps a part to exactly one job.
+ *
+ * Text is accumulated in an array and joined once rather than with `+=`. At
+ * these sizes — a part is megabytes of hex — repeated concatenation makes V8
+ * flatten a growing rope over and over, and the difference is measurable.
+ */
+export async function dumpFilePart(db, plan) {
+  const rows = await all(
+    db,
+    `SELECT file_id, chunk_no FROM file_chunks
+      WHERE (file_id > ? OR (file_id = ? AND chunk_no >= ?))
+        AND (file_id < ? OR (file_id = ? AND chunk_no <= ?))
+      ORDER BY file_id, chunk_no`,
+    plan.fromFile, plan.fromFile, plan.fromChunk,
+    plan.toFile, plan.toFile, plan.toChunk
+  );
+
+  const out = [
+    `-- AFWC Board — file bytes, part ${plan.part}\n` +
+      `-- ${rows.length} chunk row(s), ${plan.bytes} byte(s), file ${plan.fromFile} chunk ${plan.fromChunk} ` +
+      `through file ${plan.toFile} chunk ${plan.toChunk}\n` +
+      `-- Load AFTER the main backup .sql (which carries the stored_files rows these\n` +
+      `-- chunks belong to). Parts may be loaded in any order; ALL of them are needed.\n`,
+  ];
+  let cpuMs = 0;
+
+  for (const { file_id: fileId, chunk_no: chunkNo } of rows) {
+    const row = await one(db, 'SELECT data FROM file_chunks WHERE file_id = ? AND chunk_no = ?', fileId, chunkNo);
+    if (!row) continue;
+    const t0 = performance.now();
+    out.push(`${INSERT} "file_chunks" ("file_id", "chunk_no", "data") VALUES (${fileId}, ${chunkNo}, ${sqlLiteral(row.data)});\n`);
+    cpuMs += performance.now() - t0;
+  }
+
+  const t1 = performance.now();
+  const text = out.join('');
+  cpuMs += performance.now() - t1;
+
+  return { text, cpuMs, rows: rows.length };
+}
+
+/**
+ * What a main dump that had to leave the bytes out says instead — so the .sql
+ * file itself records exactly what is missing from it and how to check, rather
+ * than leaving that on a web page somebody may not have read.
+ */
+export async function fileManifestComment(db, parts) {
+  const rows = await all(
+    db,
+    `SELECT id, scope, ref_id, stored_name, size, created_at FROM stored_files ORDER BY id`
+  );
+  const totalBytes = rows.reduce((sum, r) => sum + (Number(r.size) || 0), 0);
+  const lines = [
+    '-- ============================================================================',
+    '--  THE FILE BYTES ARE NOT IN THIS FILE. The stored_files rows below ARE.',
+    '--',
+    `--  This board is holding ${rows.length} file(s), ${totalBytes} byte(s). Writing bytes out as`,
+    '--  SQL costs up to ~30 ms of CPU per megabyte, and a Cloudflare Worker on the',
+    '--  free plan gets about 10 ms per request in total — so past a very small store',
+    '--  they cannot all be built in one response. They are downloaded as numbered',
+    '--  PARTS instead, from the same Backups page you got this file from:',
+    '--',
+    ...(parts || []).map(
+      (p) =>
+        `--      /admin/backup/files.sql?part=${p.part}   ${p.rows} chunk(s), ${p.bytes} byte(s)` +
+        (p.oversize ? '   ** larger than one request s budget; see below **' : '')
+    ),
+    ...((parts || []).some((p) => p.oversize)
+      ? [
+          '--',
+          '--  The parts marked ** hold a single file chunk too large to build inside one',
+          '--  request. They may time out. For a complete copy that no CPU limit applies',
+          '--  to, use Cloudflare s own server-side export from a terminal instead:',
+          '--      npx wrangler d1 export afwc-board --remote --output afwc-full.sql',
+          '--  See README.md. That file is a full backup on its own; nothing else needed.',
+        ]
+      : []),
+    '--',
+    '--  TO RESTORE EVERYTHING: create the schema from worker/migrations/*.sql in',
+    '--  order, run THIS file, then run EVERY part file (any order). All of them are',
+    '--  required — this file names every file the board holds, so a restore that is',
+    '--  missing a part leaves some of them short rather than absent.',
+    '--',
+    '--  TO CHECK A RESTORE, run this against the restored database. It should',
+    '--  return no rows:',
+    '--      SELECT s.id, s.scope, s.ref_id, s.stored_name, s.size,',
+    '--             COALESCE(SUM(LENGTH(c.data)), 0) AS restored',
+    '--        FROM stored_files s LEFT JOIN file_chunks c ON c.file_id = s.id',
+    '--       GROUP BY s.id HAVING restored <> s.size;',
+    '--',
+    '--  What is in this board right now, for checking against:',
+    ...rows.map(
+      (r) => `--      #${r.id}  ${r.scope}/${r.ref_id}/${r.stored_name}  ${r.size} bytes  ${r.created_at}`
+    ),
+    '-- ============================================================================',
+    '',
+  ];
+  return lines.join('\n');
+}
+
+/* ------------------------------------------------------------- the dump --- */
+
+/** Split `text` into chunks no larger than `max`, on line boundaries. */
+function splitChunks(text, max) {
+  if (text.length <= max) return text ? [text] : [];
   const lines = text.split('\n');
   const chunks = [];
   let buf = '';
   for (const line of lines) {
-    if (buf.length + line.length + 1 > MAX_OBJECT_BYTES && buf) {
+    if (buf.length + line.length + 1 > max && buf) {
       chunks.push(buf);
       buf = '';
     }
@@ -138,9 +414,8 @@ function splitChunks(text) {
 
 /**
  * Dumps one table's rows as INSERT statements, batched BATCH_ROWS at a time.
- * Returns the table's text (pre-split-by-byte-size — the caller decides how
- * many R2 objects that becomes), the row count, and the SYNCHRONOUS
- * (CPU-relevant) milliseconds spent turning rows into text.
+ * Returns the table's text, the row count, and the SYNCHRONOUS (CPU-relevant)
+ * milliseconds spent turning rows into text.
  */
 async function dumpTable(db, table) {
   const columns = await tableColumns(db, table);
@@ -159,7 +434,7 @@ async function dumpTable(db, table) {
     const t0 = performance.now();
     for (const row of rows) {
       const values = columns.map((c) => sqlLiteral(row[c])).join(', ');
-      text += `INSERT INTO "${table}" (${colList}) VALUES (${values});\n`;
+      text += `${INSERT} "${table}" (${colList}) VALUES (${values});\n`;
     }
     cpuMs += performance.now() - t0;
 
@@ -173,13 +448,20 @@ async function dumpTable(db, table) {
 }
 
 /**
- * The whole database, as a set of per-table text blobs ready to hand to R2 or
- * concatenate for a single download. Nothing here talks to R2 — that split
- * (cron writes many objects, the leader route writes one combined file) lives
- * in the two callers.
+ * The whole database, as per-table text blobs.
+ *
+ * `options.includeFileBlobs` decides whether file_chunks — the BLOB table, and
+ * the only expensive one — is dumped here or paginated into parts; the caller
+ * decides that from fileStoreSummary(), not from a guess. stored_files is
+ * ALWAYS dumped either way: it is text, it costs nothing, and it is the record
+ * of what the board holds, which is exactly what somebody checking a restore
+ * needs in front of them.
  */
-export async function buildSnapshot(db) {
-  const tables = await listTables(db);
+export async function buildSnapshot(db, options = {}) {
+  const includeFileBlobs = !!options.includeFileBlobs;
+  const skip = includeFileBlobs ? new Set() : new Set([BLOB_TABLE]);
+  const tables = (await listTables(db)).filter((t) => !skip.has(t));
+
   const objects = []; // { table, part, of, rowCount, text }
   let cpuMs = 0;
   let totalRows = 0;
@@ -188,103 +470,41 @@ export async function buildSnapshot(db) {
     const { text, rowCount, cpuMs: tableCpuMs } = await dumpTable(db, table);
     cpuMs += tableCpuMs;
     totalRows += rowCount;
-    const chunks = splitChunks(text);
+    // 4 MB per piece: only ever relevant to how the text is assembled, since
+    // there is nowhere to write pieces to any more — the whole thing is one
+    // download. Kept because splitting on line boundaries is also what keeps
+    // the assembled file readable.
+    const chunks = splitChunks(text, 4 * 1024 * 1024);
     if (!chunks.length) chunks.push(text);
     chunks.forEach((chunk, i) => {
       objects.push({ table, part: i + 1, of: chunks.length, rowCount: i === 0 ? rowCount : undefined, text: chunk });
     });
   }
 
-  return { generatedAt: new Date().toISOString(), tables, objects, cpuMs, totalRows };
+  return {
+    generatedAt: new Date().toISOString(),
+    tables,
+    objects,
+    cpuMs,
+    totalRows,
+    includeFileBlobs,
+  };
 }
 
 /** One combined .sql file — what the leader's on-demand download streams. */
-export function combineSnapshot(snapshot) {
+export function combineSnapshot(snapshot, extra = '') {
+  const filesLine = snapshot.includeFileBlobs
+    ? '-- Draft, event and chat FILES ARE INCLUDED, as stored_files + file_chunks rows\n' +
+      "-- (bytes as X'…' hex literals). This file is a complete backup on its own.\n"
+    : '-- Draft, event and chat files are NOT in this file — see the block below.\n';
+
   const header =
     `-- AFWC Board — database backup\n` +
     `-- Generated ${snapshot.generatedAt}\n` +
     `-- Tables: ${snapshot.tables.join(', ')}\n` +
     `-- Restore: create the schema from worker/migrations/*.sql (in order), then run this file\n` +
-    `-- (e.g. cat worker/migrations/*.sql this-file.sql | sqlite3 restored.db). Draft, event and\n` +
-    `-- chat FILES are not in here — see the R2 prefixes in the backup page for those.\n\n`;
-  return header + snapshot.objects.map((o) => o.text).join('\n');
-}
-
-/* -------------------------------------------------------------- R2 I/O ---- */
-
-const sqlHttpMeta = { contentType: 'application/sql; charset=utf-8', cacheControl: 'private, no-store, max-age=0' };
-const jsonHttpMeta = { contentType: 'application/json; charset=utf-8', cacheControl: 'private, no-store, max-age=0' };
-
-/**
- * Writes one month's snapshot to R2: one object per table (or per chunk of a
- * table past MAX_OBJECT_BYTES), plus a manifest.json naming them all. Called
- * from the monthly Cron Trigger; see worker/src/scheduled.js.
- */
-export async function writeSnapshotToR2(env, monthKey, snapshot) {
-  const prefix = `backups/${monthKey}/`;
-  const keys = [];
-  for (const obj of snapshot.objects) {
-    const name = obj.of > 1 ? `${obj.table}.${obj.part}.sql` : `${obj.table}.sql`;
-    const key = `${prefix}${name}`;
-    await env.FILES.put(key, obj.text, { httpMetadata: sqlHttpMeta });
-    keys.push(key);
-  }
-
-  const manifest = {
-    generated_at: snapshot.generatedAt,
-    month: monthKey,
-    tables: snapshot.tables,
-    total_rows: snapshot.totalRows,
-    objects: keys,
-    r2_prefixes: R2_PREFIXES,
-    cpu_ms_measured: Math.round(snapshot.cpuMs * 100) / 100,
-    note:
-      'SQL dump of every application table (plain INSERT statements). Restore by creating the ' +
-      'schema from worker/migrations/*.sql (in order) and running these files against it. Files ' +
-      "under drafts/, events/ and chat/ are not duplicated here — copy them with wrangler r2 or " +
-      'rclone; see the README.',
-  };
-  const manifestKey = `${prefix}manifest.json`;
-  await env.FILES.put(manifestKey, JSON.stringify(manifest, null, 2), { httpMetadata: jsonHttpMeta });
-
-  return { prefix, keys, manifestKey, manifest };
-}
-
-/**
- * Reconstructs one month's snapshot as a single combined .sql file by reading
- * back every object R2 lists under its prefix — the fallback the leader
- * download route uses when a live dump would run too close to the CPU budget
- * (worker/src/routes/admin.js, CPU_BUDGET_MS).
- */
-export async function readSnapshotFromR2(env, monthKey) {
-  const prefix = `backups/${monthKey}/`;
-  const listed = await env.FILES.list({ prefix });
-  const sqlKeys = (listed.objects || [])
-    .map((o) => o.key)
-    .filter((k) => k.endsWith('.sql'))
-    .sort((a, b) => a.localeCompare(b));
-
-  const parts = [
-    `-- AFWC Board — database backup (from the automatic monthly snapshot, ${monthKey})\n` +
-      `-- This is the most recent snapshot on file, not a live export — a live one was too\n` +
-      `-- expensive to build within this request's CPU budget just now. Restore the same way:\n` +
-      `-- create the schema from worker/migrations/*.sql, then run this file.\n\n`,
-  ];
-  for (const key of sqlKeys) {
-    const got = await env.FILES.get(key);
-    if (got) parts.push(await got.text());
-  }
-  return { text: parts.join('\n'), objectCount: sqlKeys.length };
-}
-
-/** Read one month's manifest.json back, or null if that month never ran. */
-export async function readManifest(env, monthKey) {
-  if (!monthKey) return null;
-  const got = await env.FILES.get(`backups/${monthKey}/manifest.json`);
-  if (!got) return null;
-  try {
-    return JSON.parse(await got.text());
-  } catch {
-    return null;
-  }
+    `-- (e.g. cat worker/migrations/*.sql this-file.sql | sqlite3 restored.db).\n` +
+    filesLine +
+    `\n`;
+  return header + (extra || '') + snapshot.objects.map((o) => o.text).join('\n');
 }

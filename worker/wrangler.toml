@@ -1,30 +1,40 @@
 # AFWC Board — Cloudflare Worker configuration.
 #
 # Everything here is runnable OFFLINE: `wrangler dev --local` boots workerd with
-# miniflare's local D1 (SQLite under .wrangler/state) and local R2. No Cloudflare
-# account is required to develop; `database_id` below is a placeholder that gets
-# replaced with the real UUID from `wrangler d1 create` on the day the group's
-# Cloudflare account exists (see README.md's DEPLOY-DAY CHECKLIST / PORT-CLOUDFLARE.md).
+# miniflare's local D1 (SQLite under .wrangler/state). No Cloudflare account is
+# required to develop, and `database_id` below is the group's real database.
 #
 # Paths are relative to THIS file (worker/), which is why the assets directory
 # reaches back up to the shared ../public that the Express app also serves.
 #
-# ================================================ TWO THINGS DEPLOY DAY TOUCHES ==
-#   1. [[d1_databases]] database_id, below — a loud placeholder, replaced with
-#      the real UUID `wrangler d1 create afwc-board` prints.
-#   2. [[r2_buckets]] bucket_name, below — the STRING is already final and never
-#      changes; the ACTION needed is creating the bucket that name refers to,
-#      with `wrangler r2 bucket create afwc-board-files` (unlike D1, where
-#      `wrangler d1 migrations apply` both creates and seeds the schema in one
-#      step, R2 has no equivalent "create on first write").
-# Both are called out again, loudly, right where they appear below. The full
-# copy-paste sequence — create the DB, paste the UUID here, create the bucket,
-# apply migrations remotely, deploy — is README.md's DEPLOY-DAY CHECKLIST.
+# =============================================== ONE BINDING, ON PURPOSE ==========
+# D1 is the whole backend. It holds the rows AND, since migration 0003, the
+# FILES — draft originals and page images, off-site event attachments, chat
+# attachments — as chunked BLOB rows (worker/src/services/filestore.js).
+#
+# There used to be an [[r2_buckets]] block here. It is gone, and the reason is
+# worth keeping written down so nobody helpfully adds it back: enabling R2 on a
+# Cloudflare account requires a payment method on file, even though this app's
+# usage would bill $0 forever. This board is owned by a shared mailbox and
+# handed on with it, and "whoever currently holds the mailbox also has a card on
+# this account" is not a thing that survives a change of leadership. D1's 5 GB
+# free tier needs no card at all. One backend, no billing profile, nothing to
+# create on deploy day beyond the database itself.
+#
+# The trade is real and is managed rather than ignored: files are chunked to fit
+# D1's row limit, and a RETENTION POLICY (settings.file_retention_days, swept by
+# the daily Cron Trigger below) keeps the 5 GB ceiling far away. See
+# worker/src/services/retention.js and README.md.
+#
+# DEPLOY DAY TOUCHES ONE THING IN THIS FILE: [[d1_databases]] database_id below,
+# already filled in. The full copy-paste sequence — create the DB, paste the
+# UUID here, set the SETUP_TOKEN secret, apply migrations remotely, deploy — is
+# README.md's DEPLOY-DAY CHECKLIST.
 # ===================================================================================
 
-name = "afwc-board"                  # ← FINAL. Matches database_name and the R2
-                                      #   bucket's naming below; also becomes the
-                                      #   *.workers.dev subdomain (see workers_dev).
+name = "afwc-board"                  # ← FINAL. Matches database_name below; also
+                                      #   becomes the *.workers.dev subdomain
+                                      #   (see workers_dev).
 main = "dist/index.js"
 compatibility_date = "2026-08-01"    # ← FINAL for this build. Bump only alongside a
                                       #   deliberate re-test against a newer Workers
@@ -64,14 +74,19 @@ enabled = true
 #                  interval-only on the Express/Node stack; a Worker has
 #                  neither, so they move to the highest-frequency schedule
 #                  Cloudflare's free plan allows.
-#   0 9 * * *      daily integrity report (soft-deleted-message attachment
-#                  counts, a #general-channel duplicate check) written to a
-#                  settings row — observability, not deletion. See
-#                  worker/src/scheduled.js's dailyIntegrityReport for why
-#                  there is no orphaned-R2 sweep on this schedule.
-#   0 9 1 * *      monthly D1 → R2 snapshot + manifest (the "belt-and-braces"
-#                  copy PORT-CLOUDFLARE.md §8 promises independent of a leader
-#                  remembering to click Download on /admin/backup).
+#   0 9 * * *      daily: the FILE RETENTION SWEEP (the only scheduled job in
+#                  this app that deletes anything a member can see — its
+#                  policy is written out at length in
+#                  worker/src/services/retention.js), then the integrity
+#                  report it feeds: file-store size, soft-deleted-message
+#                  attachment counts, a #general-channel duplicate check,
+#                  written to a settings row.
+#   0 9 1 * *      monthly backup CHECK. This used to write a D1 → R2 snapshot.
+#                  There is no bucket any more, so there is no second copy for
+#                  a cron to make and this job does not pretend otherwise: it
+#                  refreshes the numbers /admin/backup shows and stamps
+#                  settings.last_snapshot_at. THE LEADER'S DOWNLOAD IS THE
+#                  BACKUP — see worker/src/services/backup.js.
 # All three times are UTC, same as every other timestamp this app stores;
 # 09:00 UTC is 04:00/05:00 America/New_York depending on DST — deliberately
 # outside anyone's session.
@@ -81,19 +96,22 @@ crons = ["*/15 * * * *", "0 9 * * *", "0 9 1 * *"]
 # ------------------------------------------------------------------- limits --
 # No [limits] block: the free plan's per-invocation CPU budget (~10ms) is not
 # a wrangler.toml setting, it is enforced by the platform and is the number
-# every CPU-conscious comment in this codebase (PORT-CLOUDFLARE.md §6, the
-# header of worker/src/services/backup.js, worker/src/routes/drafts.js's
-# MAX_BATCH_BYTES/MAX_PAGES_PER_BATCH) is written against. Two D1-shaped
+# every CPU-conscious comment in this codebase (PORT-CLOUDFLARE.md §6, the CPU
+# BUDGET section of worker/src/services/backup.js, worker/src/routes/drafts.js's
+# MAX_BATCH_BYTES/MAX_PAGES_PER_BATCH) is written against. Three D1-shaped
 # numbers worth knowing instead, because they change how much data this app
 # can hold before something here needs revisiting rather than how fast a
 # single request runs:
 #   * D1 free tier: 5 GB stored, 5M rows read + 100k rows written per day.
-#     A volunteer writing group's board is nowhere near either ceiling; the
-#     monthly snapshot (worker/src/services/backup.js) is itself a few
-#     thousand read rows at most.
-#   * R2 free tier: 10 GB stored, no egress fee ever (R2's headline feature
-#     over S3-alikes) — draft/event/chat originals plus a year of monthly
-#     backups/ snapshots stay small for the same reason the D1 numbers do.
+#     THIS IS NOW THE FILE-STORAGE CEILING TOO, which is why the retention
+#     policy exists. A volunteer writing group's board — sub-megabyte prose
+#     drafts, a few small attachments, a year's window — is nowhere near it.
+#   * D1 row limit: 2 MB. That is what sets CHUNK_BYTES (1,000,000) in
+#     worker/src/services/filestore.js: a file is chunked into rows, and each
+#     chunk sits at half the ceiling with room for the rest of the row.
+#   * Blob → SQL text costs ~5.7 ms of CPU per megabyte, which is most of a
+#     request's budget. That is why the backup download inlines a small file
+#     store and paginates a larger one, rather than trying and failing.
 # Revisit if the group's membership or draft volume grows by an order of
 # magnitude; nothing here needs pre-emptive tuning at today's scale.
 
@@ -101,37 +119,35 @@ crons = ["*/15 * * * *", "0 9 * * *", "0 9 1 * *"]
 [[d1_databases]]
 binding = "DB"
 database_name = "afwc-board"
-# ↓↓↓ PLACEHOLDER — replace with the real value ↓↓↓
-# ← PASTE FROM `wrangler d1 create afwc-board` OUTPUT (the "database_id" line)
-database_id = "00000000-0000-0000-0000-000000000000"
+# The group's real database, from `wrangler d1 create afwc-board`. Rows AND
+# files — see the "ONE BINDING, ON PURPOSE" note at the top of this file.
+database_id = "dc9e487d-2e88-4b5b-bc4d-1884cbde267e"
 migrations_dir = "migrations"
 
-# ------------------------------------------------------------------- files --
-# Off-site event attachments (P2), draft originals/page images (P4), chat
-# attachments (P3/P4) and the monthly database snapshot (P5). Keys mirror the
-# shape the Express app used on disk, minus the "uploads/" segment that only
-# existed to keep them out of the rest of DATA_DIR — a bucket has no rest. One
-# prefix per kind of thing:
-#     events/<meetingId>/<stored_name>          worker/src/services/events/attachments.js
-#     drafts/<draftId>/…                        worker/src/services/drafts/attachments.js
-#     chat/<channelId>/<messageId>/<stored_name> worker/src/services/chat/attachments.js
-#     backups/<YYYY-MM>/<table>[.N].sql + manifest.json
-#                                                worker/src/services/backup.js (P5) — the
-#                                                monthly Cron Trigger's snapshot; also what
-#                                                a leader's on-demand /admin/backup/download.sql
-#                                                falls back to serving if a live dump would run
-#                                                too close to the CPU budget.
-# Keys are always BUILT from a validated id (or, for backups/, a server-computed
-# YYYY-MM and a table name read from sqlite_master) plus a name the app
-# generated; see the pattern notes at the top of each attachments module. The
-# bucket has no public hostname — every byte leaves through an authorized
-# Worker route, and every one of those routes is requireMember or stricter.
-[[r2_buckets]]
-binding = "FILES"
-# ↓↓↓ ACTION NEEDED — this name is final, nothing to paste, but the bucket ↓↓↓
-# ← RUN `wrangler r2 bucket create afwc-board-files` BEFORE THE FIRST DEPLOY
-#   (unlike D1, `wrangler deploy` will NOT create this bucket for you)
-bucket_name = "afwc-board-files"
+# ------------------------------------------------------------------ files --
+# There is no binding for these — they are rows. Off-site event attachments
+# (P2), draft originals and page images (P4), chat attachments (P3/P4) all live
+# in stored_files + file_chunks, addressed by (scope, ref_id, stored_name)
+# instead of an object key:
+#     ('events', <meetingId>, <stored_name>)   worker/src/services/events/attachments.js
+#     ('drafts', <draftId>,   'original.docx' | 'pages/0001.png')
+#                                              worker/src/services/drafts/attachments.js
+#     ('chat',   <messageId>, <stored_name>)   worker/src/services/chat/attachments.js
+# Addresses are always BUILT from a validated id plus a name the app generated;
+# see the pattern notes at the top of worker/src/services/filestore.js and of
+# each attachments module. Nothing has a public URL — every byte leaves through
+# an authorized Worker route, and every one of those routes is requireMember or
+# stricter.
+
+# ----------------------------------------------------------------- secrets --
+# SETUP_TOKEN (optional, set with `npx wrangler secret put SETUP_TOKEN`, NOT
+# declared here because secrets never belong in a committed config): the
+# one-time bootstrap code for /setup. When it is present and the users table is
+# still empty, the first-run form demands it, so a freshly deployed board on a
+# public URL cannot be claimed by whoever finds it first. It is inert the moment
+# an account exists — /setup hard-404s from then on — and can be deleted after
+# setup. Absent (local dev), /setup behaves exactly as it always has.
+# See worker/src/routes/auth.js and README.md's DEPLOY-DAY CHECKLIST.
 
 # ------------------------------------------------------------------ assets --
 # public/ is shared verbatim with the Express app.

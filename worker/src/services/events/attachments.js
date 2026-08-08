@@ -1,46 +1,53 @@
 /**
- * Off-site event attachments on R2 — and THE R2 PATTERN the rest of the port
- * follows (P4's draft originals and page images, P5's backup manifest).
+ * Off-site event attachments — the VALIDATION half of what used to be this
+ * app's first application of THE R2 PATTERN, now sitting on top of
+ * worker/src/services/filestore.js.
  *
  * Port of src/services/events/attachments.js + src/services/events/paths.js,
  * which between them owned the tmp-file dance, the magic-byte check and the
  * DATA_DIR/uploads/events/<meetingId>/ tree. On Workers there is no disk and no
  * tmp file: the browser's multipart part arrives as a `File`, is read into
- * memory once, checked, and written straight to R2. The two Express modules
+ * memory once, checked, and handed to the store. The two Express modules
  * collapse into this one because half of what paths.js existed for — refusing a
- * name that escapes its directory — is not a thing that can happen to an object
- * key we generate ourselves.
+ * name that escapes its directory — is not a thing that can happen to an
+ * address we generate ourselves.
  *
- * ------------------------------------------------------------ THE PATTERN ---
+ * ---------------------------------------------------- WHAT MOVED, AND WHY ---
  *
- * 1. KEYS ARE BUILT, NEVER ACCEPTED. `key(meetingId, storedName)` is the only
- *    place a key is composed, from a validated integer id and a stored_name
- *    this module generated. Nothing a leader's file manager called a file ever
- *    reaches R2, and a stored_name read back out of D1 is re-checked against
- *    SAFE_STORED_NAME before it is used, so a tampered row cannot walk the
- *    bucket. Shape:  events/<meetingId>/<stored_name>
- *    (P4: drafts/<draftId>/… — same rule, same helper shape.)
+ * Everything about WHICH FILES ARE ALLOWED is still here: the four-format
+ * allowlist, the 5-file/10-MB caps, the magic-byte sniffing, the stored-name
+ * generator, and the leader-readable complaint sentences. Everything about
+ * WHERE THE BYTES GO is now filestore.js — one module for all three kinds of
+ * attachment, because after the move to D1 they really are one mechanism
+ * (chunked rows) rather than three shapes of object key.
  *
- * 2. THE BUCKET IS NEVER PUBLIC. Every byte leaves through a Worker route that
- *    re-checks authorization first (worker/src/routes/events.js). There is no
- *    signed URL, no bucket binding on a public hostname; a URL is dead the
- *    moment it leaves a session.
+ * The four rules are unchanged and are written out, in their D1 form, at the
+ * top of filestore.js. This module's share of them:
  *
- * 3. VALIDATE BEFORE YOU PUT. Extension → size → magic bytes, all on the bytes
- *    in hand, and the caller writes NOTHING to R2 until every file in the
+ * 1. KEYS ARE BUILT, NEVER ACCEPTED. `key(meetingId, storedName)` is still the
+ *    only place an event file's address is composed, from a validated integer
+ *    id and a stored_name this module generated. Nothing a leader's file
+ *    manager called a file is ever used, and a stored_name read back out of D1
+ *    is re-checked against SAFE_STORED_NAME before it is used. The address is
+ *    now the triple ('events', meetingId, stored_name) rather than the object
+ *    key events/<meetingId>/<stored_name> — same rule, one fewer place a path
+ *    separator can mean something.
+ *
+ * 3. VALIDATE BEFORE YOU WRITE. Extension → size → magic bytes, all on the
+ *    bytes in hand, and the caller writes NOTHING until every file in the
  *    submit has passed. That is what keeps a half-attached event impossible:
- *    the D1 rows and the objects are written in the same, later, step.
+ *    the event_attachments rows and the bytes are written in the same, later,
+ *    step.
  *
- * 4. D1 ROWS OWN THE OBJECTS. An object with no row is unreachable (nothing can
- *    name it) and is cleaned up by the caller on the one path that can create
- *    it — a failed insert after a successful put. A row with no object answers
- *    404 rather than exploding, exactly as the fs.existsSync check did.
- *
- * The sniffing here is deliberately its own small copy of the idea P4 will need
- * for drafts rather than a shared abstraction: this list is four formats long
- * and answers a different question (what may a LEADER attach to an event), and
- * coupling the two would mean one edit could quietly widen the other.
+ * The sniffing here is deliberately its own small copy of the idea the drafts
+ * and chat modules also need rather than a shared abstraction: this list is
+ * four formats long and answers a different question (what may a LEADER attach
+ * to an event), and coupling them would mean one edit could quietly widen the
+ * others. That is exactly why filestore.js took the storage half and left the
+ * three allowlists alone.
  */
+
+import * as filestore from '../filestore.js';
 
 export const MAX_FILES = 5;
 export const MAX_BYTES = 10 * 1024 * 1024;
@@ -121,30 +128,31 @@ export function makeStoredName(ext) {
   return `${Date.now().toString(36)}-${rand}${clean}`;
 }
 
+/** The filestore scope every file in this module belongs to. */
+const SCOPE = 'events';
+
 /**
- * The one place an object key is composed. Returns null when either half is not
- * something this module could have produced — the caller then 404s rather than
- * asking R2 a question built from user input.
+ * The one place an event file's address is composed. Returns the filestore
+ * triple, or null when either half is not something this module could have
+ * produced — the caller then 404s rather than asking the database a question
+ * built from user input.
  */
 export function key(meetingId, storedName) {
-  const id = Number(meetingId);
-  if (!Number.isInteger(id) || id <= 0) return null;
   const name = String(storedName || '');
   if (!SAFE_STORED_NAME.test(name)) return null;
-  return `events/${id}/${name}`;
+  return filestore.fileKey(SCOPE, meetingId, name);
 }
 
 /**
- * Writes one validated file to R2 and returns the row shape
+ * Writes one validated file and returns the row shape
  * models.eventFiles.create() wants — the caller owns the database write, so a
  * failed insert can never leave a half-attached file behind (it unlinks).
  */
 export async function store(env, meetingId, file, bytes, { ext, mime }) {
   const stored_name = makeStoredName(ext);
-  const objectKey = key(meetingId, stored_name);
-  await env.FILES.put(objectKey, bytes, {
-    httpMetadata: { contentType: mime, cacheControl: 'private, no-store, max-age=0' },
-  });
+  const address = key(meetingId, stored_name);
+  if (!address) throw new Error(`refusing to store an unsafe event file name: ${stored_name}`);
+  await filestore.put(env.DB, SCOPE, address.refId, address.storedName, mime, bytes);
   return {
     meeting_id: meetingId,
     original_name: String(file.name || '').slice(0, 200),
@@ -154,20 +162,21 @@ export async function store(env, meetingId, file, bytes, { ext, mime }) {
   };
 }
 
-/** The object behind one attachment row, or null. Used by the stream route. */
-export function get(env, meetingId, storedName) {
-  const objectKey = key(meetingId, storedName);
-  if (!objectKey) return null;
-  return env.FILES.get(objectKey);
+/**
+ * The bytes behind one attachment row, as filestore's
+ * `{ status, headers, body }`, or null when the row names nothing — which is
+ * also what a file aged out by the retention sweep looks like from here. Used
+ * by the stream route in worker/src/routes/events.js.
+ */
+export function open(env, meetingId, storedName, options) {
+  const address = key(meetingId, storedName);
+  if (!address) return Promise.resolve(null);
+  return filestore.stream(env.DB, address, options);
 }
 
 /** Best-effort byte removal for one attachment row. */
 export async function unlinkStored(env, meetingId, storedName) {
-  const objectKey = key(meetingId, storedName);
-  if (!objectKey) return;
-  try {
-    await env.FILES.delete(objectKey);
-  } catch (err) {
-    console.error('[afwc] event attachment delete failed:', err);
-  }
+  const address = key(meetingId, storedName);
+  if (!address) return;
+  await filestore.remove(env.DB, SCOPE, address.refId, address.storedName);
 }

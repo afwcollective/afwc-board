@@ -147,6 +147,15 @@
 .chat-chip:hover { background: var(--tint); color: var(--ink); border-color: var(--ink-4); border-left-color: var(--blue); }
 .chat-chip-name { overflow-wrap: anywhere; }
 .chat-chip-size { color: var(--ink-4); white-space: nowrap; }
+/* A file kept past the retention window, on the stack that has one: the chip
+   stays in its place in the transcript but stops looking clickable — a <span>,
+   no blue rule, dimmed. The Express app never renders this class. */
+.chat-chip--expired {
+  color: var(--ink-4); background: var(--tint);
+  border-color: var(--hair); border-left-color: var(--hair-2);
+  cursor: default;
+}
+.chat-chip--expired .chat-chip-name { text-decoration: line-through; }
 
 /* ---------------------------------------------------------- compose */
 

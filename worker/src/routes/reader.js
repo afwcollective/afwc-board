@@ -5,7 +5,7 @@
  *   GET  /drafts/:id            reader shell (mode chosen by draft kind)
  *   GET  /drafts/:id/status     JSON status for the processing poll
  *   GET  /drafts/:id/page/:n    sanitized HTML fragment, no-store
- *   GET  /drafts/:id/file.pdf   inline PDF stream with Range support (R2 ranges)
+ *   GET  /drafts/:id/file.pdf   inline PDF stream with Range support (chunk reads)
  *   GET  /drafts/:id/img/:n     page image streamed through the session check
  *   GET  /drafts/:id/comments   JSON threads, ?page=N or ?all=1
  *   POST /drafts/:id/comments   JSON; starts a thread, or replies to one
@@ -21,19 +21,21 @@
  * coexist; nothing shadows anything.
  *
  * Every byte of draft content leaves through this file, and every route here is
- * requireMember + not-deleted + `Cache-Control: private, no-store`. The R2
- * bucket has no public hostname (worker/src/services/drafts/attachments.js rule
- * 2), so a shared URL is dead the moment it leaves a session.
+ * requireMember + not-deleted + `Cache-Control: private, no-store`. The file
+ * store is rows in the app's own private database
+ * (worker/src/services/drafts/attachments.js rule 2), so a shared URL is dead
+ * the moment it leaves a session.
  *
  * ============================================================ WHAT CHANGED ===
  *
  * 1. RANGE REQUESTS. The Express version did fs.statSync + fs.createReadStream
- *    ({start, end}). Here it is R2: head() for the size, then get() with
- *    `{ range: { offset, length } }`, which is PORT-CLOUDFLARE.md §4's "Range
- *    requests for the PDF reader use R2 range reads". The PARSING is untouched
- *    — same regex, same suffix-range handling, same two 416 branches with
+ *    ({start, end}); P4 did an R2 head() plus a ranged get(). Both are now one
+ *    call into worker/src/services/filestore.js, which resolves a byte range to
+ *    the chunk rows that intersect it. The PARSING is untouched — same regex,
+ *    same suffix-range handling, same two 416 branches with
  *    `Content-Range: bytes * /size` — because pdf.js is the client and its
- *    expectations are not negotiable.
+ *    expectations are not negotiable. It simply moved next to the arithmetic it
+ *    now feeds; see the comment above the .pdf route.
  *
  * 2. THE ERROR SHAPES ARE THE CONTRACT. fail() keeps its three modes: 'html'
  *    renders the error page, 'json' answers { ok:false, error }, 'bytes' sends
@@ -461,11 +463,24 @@ router.get('/drafts/:id/page/:n', async (c) => {
 
 /* ---------------- pdf stream (the only route that touches an original) ------
  *
- * Range parsing is character-for-character the Express implementation; only the
- * two I/O calls changed. R2 gives the size from head() and the slice from
- * get(key, { range: { offset, length } }), so a 40 MB PDF never lands in the
- * isolate — pdf.js asks for a few tens of kilobytes at a time and each one is a
- * separate ranged read.
+ * The Express version did fs.statSync + fs.createReadStream({start, end}); P4
+ * did R2 head() + get(key, { range }). Both of those had the Range PARSING
+ * inline, right here. It now lives one layer down, in
+ * worker/src/services/filestore.js — because the answer to "which bytes" is now
+ * also the answer to "which chunk rows", and splitting the arithmetic across
+ * two files would have been the easiest possible way to get a 206 subtly wrong.
+ *
+ * WHAT DID NOT CHANGE: the semantics, exactly, to the six cases the P4
+ * verification matrix pinned down — 200 for no range and for a garbage unit,
+ * 206 for a normal range / an open-ended one / a suffix one / one clamped to
+ * the end of the file, 416 with `Content-Range: bytes * /size` for a start past
+ * the end and for `bytes=-`. pdf.js is the client and its expectations are not
+ * negotiable. `base` below is still assembled here and still first, so every
+ * response carries the same headers in the same order it always did.
+ *
+ * A 40 MB PDF still never lands in the isolate: pdf.js asks for a few tens of
+ * kilobytes at a time, and each of those now reads the one or two chunk rows
+ * that intersect the range instead of the whole file.
  */
 
 router.get('/drafts/:id/file.pdf', async (c) => {
@@ -477,10 +492,6 @@ router.get('/drafts/:id/file.pdf', async (c) => {
   if (draft.status !== 'ready') return fail(c, 'bytes', 409, 'That draft is still being converted.');
 
   const rel = draft.original_path || 'original.pdf';
-  const meta = await files.head(c.env, draft.id, rel);
-  if (!meta) return fail(c, 'bytes', 404, 'That file is missing.');
-
-  const size = meta.size;
   const base = {
     ...NO_STORE,
     'Content-Type': 'application/pdf',
@@ -488,39 +499,9 @@ router.get('/drafts/:id/file.pdf', async (c) => {
     'Accept-Ranges': 'bytes',
   };
 
-  const range = c.req.header('range');
-  const match = range && /^bytes=(\d*)-(\d*)$/.exec(range.trim());
-  if (match) {
-    let start = match[1] === '' ? null : Number(match[1]);
-    let end = match[2] === '' ? null : Number(match[2]);
-
-    if (start === null && end === null) {
-      return c.body(null, 416, { ...base, 'Content-Range': `bytes */${size}` });
-    }
-    if (start === null) {
-      // suffix range: last N bytes
-      start = Math.max(0, size - end);
-      end = size - 1;
-    } else if (end === null || end >= size) {
-      end = size - 1;
-    }
-    if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= size) {
-      return c.body(null, 416, { ...base, 'Content-Range': `bytes */${size}` });
-    }
-
-    const length = end - start + 1;
-    const slice = await files.get(c.env, draft.id, rel, { range: { offset: start, length } });
-    if (!slice) return fail(c, 'bytes', 404, 'That file is missing.');
-    return c.body(slice.body, 206, {
-      ...base,
-      'Content-Range': `bytes ${start}-${end}/${size}`,
-      'Content-Length': String(length),
-    });
-  }
-
-  const object = await files.get(c.env, draft.id, rel);
-  if (!object) return fail(c, 'bytes', 404, 'That file is missing.');
-  return c.body(object.body, 200, { ...base, 'Content-Length': String(size) });
+  const res = await files.open(c.env, draft.id, rel, { range: c.req.header('range') });
+  if (!res) return fail(c, 'bytes', 404, 'That file is missing.');
+  return c.body(res.body, res.status, { ...base, ...res.headers });
 });
 
 /* ---------------- page image stream ---------------- */
@@ -540,10 +521,10 @@ router.get('/drafts/:id/img/:n', async (c) => {
     return fail(c, 'bytes', 404, 'No such page.');
   }
 
-  const object = await files.get(c.env, draft.id, page.file_path);
-  if (!object) return fail(c, 'bytes', 404, 'That page image is missing.');
+  const res = await files.open(c.env, draft.id, page.file_path);
+  if (!res) return fail(c, 'bytes', 404, 'That page image is missing.');
 
-  return c.body(object.body, 200, {
+  return c.body(res.body, 200, {
     ...NO_STORE,
     'Content-Type': files.IMAGE_MIME[files.extname(page.file_path)] || 'application/octet-stream',
     'Content-Disposition': 'inline',
