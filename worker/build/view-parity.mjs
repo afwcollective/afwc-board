@@ -58,9 +58,17 @@ const rule = {
   id: 1, weekday: 6, time_hhmm: '13:00', title: 'Saturday sprints',
   location_label: 'Hilo', map_x: 15, map_y: 59.7, notes: null, is_active: 1,
 };
+/*
+ * user_id: 1 matches `user` below (the fixture's currentUser), so the base
+ * pass is "looking at your own draft" — author_name: null is the common case
+ * (no pen name set, byline falls back to uploader_name). Pen-name branches
+ * (the tooltip, the edit link's uploader-or-architect gate) are pinned as
+ * VARIANTS further down rather than crammed into one object here.
+ */
 const draft = {
   id: 3, title: 'Chapter One', description: 'draft', kind: 'docx', status: 'ready',
-  page_count: 4, user_id: 1, author_name: 'Brian', created_at: '2026-08-01T12:00:00.000Z',
+  page_count: 4, user_id: 1, author_name: null, uploader_name: 'Brian',
+  created_at: '2026-08-01T12:00:00.000Z',
 };
 const thread = {
   id: 2, title: 'A thread', user_id: 1, author_name: 'Brian', draft_id: null,
@@ -156,9 +164,9 @@ const LOCALS = {
     source_note: 'The Fellowship of the Ring', is_active: 1, sort_order: 0,
   },
   recentDrafts: [
-    { id: 3, title: 'Chapter One', kind: 'docx', created_at: '2026-08-01T12:00:00.000Z', uploader_name: 'Brian' },
-    { id: 4, title: 'The Long Way Down', kind: 'pdf', created_at: '2026-07-30T12:00:00.000Z', uploader_name: 'Dana' },
-    { id: 5, title: 'Panels', kind: 'images', created_at: '2026-07-29T12:00:00.000Z', uploader_name: 'Walt' },
+    { id: 3, title: 'Chapter One', kind: 'docx', created_at: '2026-08-01T12:00:00.000Z', author_name: null, uploader_name: 'Brian' },
+    { id: 4, title: 'The Long Way Down', kind: 'pdf', created_at: '2026-07-30T12:00:00.000Z', author_name: null, uploader_name: 'Dana' },
+    { id: 5, title: 'Panels', kind: 'images', created_at: '2026-07-29T12:00:00.000Z', author_name: null, uploader_name: 'Walt' },
   ],
   recentDraftCount: 3,
   draftKindLabel: { docx: 'Word', pdf: 'PDF', text: 'Text', images: 'Graphic novel' },
@@ -201,6 +209,8 @@ const LOCALS = {
   files: [{ id: 1, original_name: 'flyer.png', size: 2048 }],
   limits: {
     maxDocMb: 25, maxImageMb: 10, maxImages: 60, maxTotalMb: 150,
+    // drafts/new.ejs + drafts/edit.ejs — the pen-name field
+    maxAuthorChars: 80,
     // chat/index.ejs
     maxFiles: 3, maxFileMb: 10, maxChars: 8000,
   },
@@ -348,8 +358,52 @@ const VARIANTS = [
   ['drafts/show', 'watermark off', { watermarkOn: false, watermarkDataUri: null }],
   ['drafts/show', 'locked conversation', { thread: { ...thread, is_locked: 1 }, canPost: false }],
   ['drafts/show', 'thread removed by a leader', { thread: null, threadId: null, posts: [] }],
+
+  /*
+   * BYLINE — the draft-author feature. `draft.author_name` (nullable, both
+   * schemas) overrides the uploader's display name wherever a byline shows;
+   * `draft.user_id === currentUser.id || isArchitect` is the one thing that
+   * ALSO gates the "Edit byline" link, deliberately narrower than the
+   * canManage() authority retry/delete already have (a plain leader manages
+   * a draft but does not get to rewrite whose name is on someone else's
+   * work — see the comment on canEditAuthor() in worker/src/routes/drafts.js
+   * and src/routes/drafts.js). The base pass already covers the plainest
+   * case: no pen name, viewed by its own uploader (who is also, in this
+   * fixture, a leader and the architect). These four pin the other reachable
+   * combinations of {pen name set?, viewer = uploader/architect/leader/
+   * ordinary member?}.
+   */
+  ['drafts/show', 'byline: pen name set, uploader viewing (moderation tooltip + edit link)', {
+    draft: { ...draft, author_name: 'Wordsmith' },
+  }],
+  ['drafts/show', 'byline: pen name set, a leader (neither uploader nor architect) viewing', {
+    draft: { ...draft, user_id: 2, uploader_name: 'Dana', author_name: 'Wordsmith' },
+    isArchitect: false,
+  }],
+  ['drafts/show', 'byline: pen name set, an ordinary member viewing (no tooltip, no edit link)', {
+    draft: { ...draft, user_id: 2, uploader_name: 'Dana', author_name: 'Wordsmith' },
+    isLeader: false, isArchitect: false,
+  }],
+  ['drafts/show', 'byline: architect editing a draft they did not upload', {
+    draft: { ...draft, user_id: 2, uploader_name: 'Dana', author_name: 'Wordsmith' },
+    isLeader: true, isArchitect: true,
+  }],
+
   ['drafts/index', 'empty library', { drafts: [] }],
   ['drafts/index', 'nothing this member may manage', { canManage: () => false }],
+  ['drafts/index', 'byline: pen name set, moderation tooltip + architect edit link', {
+    drafts: [{ ...draft, author_name: 'Wordsmith', user_id: 2, uploader_name: 'Dana' }],
+  }],
+  ['drafts/index', 'byline: pen name set, ordinary member viewing (no tooltip, no edit link)', {
+    drafts: [{ ...draft, author_name: 'Wordsmith', user_id: 2, uploader_name: 'Dana' }],
+    isLeader: false, isArchitect: false, canManage: () => false,
+  }],
+
+  ['drafts/edit', 'editing an existing pen name', {
+    draft: { ...draft, author_name: 'Wordsmith' },
+    values: { authorName: 'Wordsmith' },
+  }],
+
   ['drafts/new', 'with errors', { errors: ['Give the draft a title so people know what they are opening.'] }],
   ['drafts/new', 'image mode preselected', { values: { title: 'Panels', description: '', mode: 'images' } }],
   /*
@@ -420,6 +474,14 @@ const VARIANTS = [
   }],
   ['home', 'worker: event attachment expired', {
     eventAttachments: [{ id: 1, meeting_id: 7, original_name: 'flyer.png', size: 2048, expired: 1 }],
+  }],
+  ['home', 'fresh pages: a pen name credited instead of the uploader', {
+    recentDrafts: [
+      { id: 3, title: 'Chapter One', kind: 'docx', created_at: '2026-08-01T12:00:00.000Z',
+        author_name: 'Wordsmith', uploader_name: 'Brian' },
+      { id: 4, title: 'The Long Way Down', kind: 'pdf', created_at: '2026-07-30T12:00:00.000Z',
+        author_name: null, uploader_name: 'Dana' },
+    ],
   }],
 
   /*

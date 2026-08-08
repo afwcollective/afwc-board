@@ -1,0 +1,30 @@
+<section class="section">
+  <div class="wrap wrap--narrow">
+    <p class="eyebrow">Members · Edit</p>
+    <h1>Edit byline</h1>
+    <p class="lede measure">
+      “<%= draft.title %>” — change who this draft is credited to. Leave it blank to go back to
+      showing your own display name.
+    </p>
+
+    <%- include('../partials/form-errors', { errors: errors }) %>
+
+    <form method="post" action="/drafts/<%= draft.id %>/edit" class="form card card--form" id="edit-form">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+      <div class="field">
+        <label for="author_name">Author name <span class="optional">(optional)</span></label>
+        <input id="author_name" name="author_name" type="text" maxlength="<%= limits.maxAuthorChars %>"
+               value="<%= values.authorName %>" placeholder="A pen name, or your co-author's name">
+        <p class="hint">
+          Leave blank to use your display name — or credit a pen name.
+        </p>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary">Save</button>
+        <a class="btn btn--sm" href="/drafts/<%= draft.id %>">Back to the draft</a>
+      </div>
+    </form>
+  </div>
+</section>

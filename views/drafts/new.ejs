@@ -32,6 +32,15 @@
                   placeholder="Second draft. I'm unsure about the pacing after the argument."><%= values.description %></textarea>
       </div>
 
+      <div class="field">
+        <label for="author_name">Author name <span class="optional">(optional)</span></label>
+        <input id="author_name" name="author_name" type="text" maxlength="<%= limits.maxAuthorChars %>"
+               value="<%= values.authorName %>" placeholder="A pen name, or your co-author's name">
+        <p class="hint">
+          Leave blank to use your display name — or credit a pen name.
+        </p>
+      </div>
+
       <p class="form-legend">What are you uploading?</p>
 
       <div class="mode-switch" role="radiogroup" aria-label="Upload type">

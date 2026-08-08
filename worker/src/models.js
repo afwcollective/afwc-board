@@ -900,7 +900,7 @@ export const drafts = {
   recent: (db, limit = 3) =>
     all(
       db,
-      `SELECT d.id, d.title, d.kind, d.created_at, u.display_name AS uploader_name
+      `SELECT d.id, d.title, d.kind, d.created_at, d.author_name, u.display_name AS uploader_name
          FROM drafts d JOIN users u ON u.id = d.user_id
         WHERE d.deleted_at IS NULL AND d.status = 'ready'
         ORDER BY d.created_at DESC LIMIT ?`,

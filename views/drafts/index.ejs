@@ -21,6 +21,21 @@
     <% } else { %>
       <ul class="draft-list">
         <% drafts.forEach(function (d) { %>
+          <%
+            /*
+             * BYLINE: an uploader may credit the draft to a pen name instead of
+             * their own display name (author_name, set on upload or from
+             * /drafts/:id/edit) — NULL means "nothing was set", so the display
+             * name is exactly what always showed here. Whenever a pen name
+             * DIFFERS from who actually uploaded it, the uploader and any
+             * leader still see that real name — moderation has to be able to
+             * tell who is really behind a post — via a hover title on the
+             * byline rather than a second visible line, the least-noisy way to
+             * carry it. Nobody else gets that tooltip.
+             */
+            var draftByline = d.author_name || d.uploader_name;
+            var showByAttribution = !!d.author_name && (isLeader || (currentUser && currentUser.id === d.user_id));
+          %>
           <li class="card draft-card draft-card--<%= d.status %>">
             <p class="draft-meta">
               <span class="badge badge--kind"><%= kindLabel[d.kind] || d.kind %></span>
@@ -30,7 +45,7 @@
                 <span class="badge badge--fail">Didn’t convert</span>
               <% } %>
               <time datetime="<%= dates.isoAttr(d.created_at) %>"><%= dates.formatDateShort(d.created_at) %></time>
-              <span class="draft-by">· <%= d.uploader_name %></span>
+              <span class="draft-by"<% if (showByAttribution) { %> title="Shared by <%= d.uploader_name %>"<% } %>>· <%= draftByline %></span>
             </p>
 
             <h2 class="draft-title">
@@ -62,6 +77,15 @@
 
             <% if (canManage(d)) { %>
               <div class="draft-actions">
+                <%
+                  /* Byline editing is the UPLOADER's call (or the architect's,
+                     the board's one god-mode account) — not a plain leader's,
+                     even though a leader can manage (retry/remove) this draft
+                     in every other way. See views/drafts/edit.ejs. */
+                %>
+                <% if (currentUser && (currentUser.id === d.user_id || isArchitect)) { %>
+                  <a class="btn btn--sm" href="/drafts/<%= d.id %>/edit">Edit byline</a>
+                <% } %>
                 <% if (d.status === 'failed') { %>
                   <form method="post" action="/drafts/<%= d.id %>/retry" class="inline-form">
                     <input type="hidden" name="_csrf" value="<%= csrfToken %>">

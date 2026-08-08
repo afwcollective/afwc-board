@@ -1,0 +1,21 @@
+-- 008 — Draft author byline: an optional credited name, separate from who
+-- uploaded the file.
+--
+-- "Some people play with their user names" — the board's account display
+-- name is not always the name a writer wants on their own work. By default
+-- the byline everywhere a draft appears (library card, reader title bar, the
+-- landing page's fresh-pages window) is still the uploader's display name,
+-- exactly as before. This column lets the uploader (or a leader) set
+-- something else instead: a pen name, their real name if the account uses a
+-- handle, or credit for a co-author who isn't the one who hit upload.
+--
+-- NULL is the default and means "nothing was set — show the uploader's
+-- display name", which is why every existing row needs no backfill: an
+-- ADD COLUMN with no DEFAULT leaves every prior draft exactly as it read
+-- before this migration. drafts.user_id is untouched and still the only
+-- record of who actually uploaded the file — the byline can say anything,
+-- but moderation (leaders, and the uploader themselves) can still always see
+-- who really shared it. See views/drafts/index.ejs and views/drafts/show.ejs
+-- for where that attribution surfaces.
+
+ALTER TABLE drafts ADD COLUMN author_name TEXT;

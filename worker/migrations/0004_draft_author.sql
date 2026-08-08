@@ -1,0 +1,25 @@
+-- 0004 — Draft author byline. Port of src/migrations/008_draft_author.sql,
+-- verbatim: one nullable column, no backfill needed.
+--
+-- "Some people play with their user names" — the account's display name is
+-- not always the name a writer wants credited on their own work. By default
+-- the byline everywhere a draft appears (library card, reader title bar, the
+-- landing page's fresh-pages window) is still the uploader's display name,
+-- exactly as before. This column lets the uploader (or a leader) set
+-- something else instead: a pen name, a real name if the account uses a
+-- handle, or credit for a co-author who isn't the one who hit upload.
+--
+-- NULL is the default and means "nothing was set — show the uploader's
+-- display name". drafts.user_id is untouched and still the only record of
+-- who actually uploaded the file, so moderation (leaders, and the uploader
+-- themselves) can still always see who really shared it — see
+-- views/drafts/index.ejs and views/drafts/show.ejs for where that
+-- attribution surfaces.
+--
+-- PRODUCTION D1 IS LIVE. This is a clean, additive ALTER TABLE ADD COLUMN
+-- with no DEFAULT and no backfill — every existing row simply gains a NULL
+-- in the new column, which is the exact "use the uploader's display name"
+-- behaviour it already had. Nothing here rewrites a row or risks a lock
+-- beyond the ALTER itself.
+
+ALTER TABLE drafts ADD COLUMN author_name TEXT;

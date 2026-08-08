@@ -320,7 +320,7 @@
               <span class="badge badge--kind"><%= draftKindLabel[featuredDraft.kind] || featuredDraft.kind %></span>
               <h3 class="fresh-title"><%= featuredDraft.title %></h3>
               <p class="fresh-meta mono small muted">
-                <%= featuredDraft.uploader_name %> · <%= dates.formatDateShort(featuredDraft.created_at) %>
+                <%= featuredDraft.author_name || featuredDraft.uploader_name %> · <%= dates.formatDateShort(featuredDraft.created_at) %>
               </p>
             </a>
             <% if (moreDrafts.length) { %>
@@ -330,7 +330,7 @@
                     <span class="badge badge--kind"><%= draftKindLabel[d.kind] || d.kind %></span>
                     <h4 class="fresh-title-sm"><%= d.title %></h4>
                     <p class="fresh-meta mono small muted">
-                      <%= d.uploader_name %> · <%= dates.formatDateShort(d.created_at) %>
+                      <%= d.author_name || d.uploader_name %> · <%= dates.formatDateShort(d.created_at) %>
                     </p>
                   </a>
                 <% }) %>

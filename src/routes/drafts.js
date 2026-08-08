@@ -24,7 +24,7 @@ const multer = require('multer');
 
 const { db } = require('../db');
 const { requireMember } = require('../auth/middleware');
-const { isLeaderUser } = require('../auth/roles');
+const { isLeaderUser, isArchitectUser } = require('../auth/roles');
 const { flash } = require('../util/flash');
 const { toPlainText } = require('../util/sanitize');
 const { ingestDraft } = require('../services/ingest');
@@ -38,6 +38,21 @@ const MAX_DOC_BYTES = 25 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_IMAGES_TOTAL_BYTES = 150 * 1024 * 1024;
 const MAX_IMAGES = 60;
+/** The pen-name / author-credit field on the upload form and its edit route. */
+const MAX_AUTHOR_CHARS = 80;
+
+/**
+ * Strip tags, trim, clamp to MAX_AUTHOR_CHARS, and fold an empty result to
+ * `null` — NULL is what COALESCE-in-the-template (`author_name ||
+ * uploader_name`) treats as "nothing was set, use the display name". Runs
+ * through the same house allowlist as everything else user-typed, so a
+ * hand-crafted `<script>` in this field is inert before it ever reaches the
+ * database, not merely escaped on the way back out.
+ */
+function sanitizeAuthorName(raw) {
+  const clean = toPlainText(String(raw == null ? '' : raw)).trim().slice(0, MAX_AUTHOR_CHARS);
+  return clean || null;
+}
 
 const DOC_KINDS = {
   '.docx': 'docx',
@@ -183,7 +198,7 @@ const q = {
   library: () =>
     db.prepare(
       `SELECT d.id, d.title, d.description, d.kind, d.status, d.error_msg, d.page_count,
-              d.original_filename, d.created_at, d.user_id,
+              d.original_filename, d.created_at, d.user_id, d.author_name,
               u.display_name AS uploader_name,
               (SELECT COUNT(*) FROM comments c
                 WHERE c.draft_id = d.id AND c.deleted_at IS NULL) AS comment_count,
@@ -198,8 +213,12 @@ const q = {
   byId: () => db.prepare('SELECT * FROM drafts WHERE id = ? AND deleted_at IS NULL'),
   insert: () =>
     db.prepare(
-      `INSERT INTO drafts (user_id, title, description, kind, status, original_filename, original_path)
-       VALUES (?, ?, ?, ?, 'processing', ?, ?)`
+      `INSERT INTO drafts (user_id, title, description, kind, status, original_filename, original_path, author_name)
+       VALUES (?, ?, ?, ?, 'processing', ?, ?, ?)`
+    ),
+  updateAuthorName: () =>
+    db.prepare(
+      `UPDATE drafts SET author_name = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?`
     ),
   insertThread: () =>
     db.prepare(
@@ -225,6 +244,17 @@ const q = {
 };
 
 const canManage = (user, draft) => !!user && (user.id === draft.user_id || isLeaderUser(user));
+
+/**
+ * The byline is the uploader's own call, not a leader override — a leader can
+ * still remove a whole draft (moderation), but cannot rewrite whose name is
+ * on someone else's work. The one exception is the architect, the board's
+ * single god-mode account (src/auth/roles.js) — every other permission check
+ * in this file gives leader and architect the same power via canManage()
+ * (isLeaderUser is true for both), but this one deliberately does not: a
+ * plain leader gets 403 here, same as any other member.
+ */
+const canEditAuthor = (user, draft) => !!user && (user.id === draft.user_id || isArchitectUser(user));
 
 /* ---------------- library ---------------- */
 
@@ -252,12 +282,14 @@ function renderNew(req, res, { errors = [], values = {} } = {}) {
       title: values.title || '',
       description: values.description || '',
       mode: values.mode || 'document',
+      authorName: values.authorName || '',
     },
     limits: {
       maxDocMb: MAX_DOC_BYTES / 1024 / 1024,
       maxImageMb: MAX_IMAGE_BYTES / 1024 / 1024,
       maxImagesTotalMb: MAX_IMAGES_TOTAL_BYTES / 1024 / 1024,
       maxImages: MAX_IMAGES,
+      maxAuthorChars: MAX_AUTHOR_CHARS,
     },
   });
 }
@@ -275,6 +307,7 @@ router.post('/', requireMember, handleUpload, (req, res) => {
   const body = req.body || {};
   const title = String(body.title || '').trim().slice(0, 160);
   const description = String(body.description || '').trim().slice(0, 2000);
+  const authorName = sanitizeAuthorName(body.author_name);
   const mode = body.mode === 'images' ? 'images' : 'document';
   const docFiles = (req.files && req.files.document) || [];
   const imageFiles = (req.files && req.files.images) || [];
@@ -344,7 +377,7 @@ router.post('/', requireMember, handleUpload, (req, res) => {
   if (errors.length) {
     cleanupTmp(req);
     if (wantsJson) return res.status(400).json({ ok: false, errors });
-    return renderNew(req, res, { errors, values: { title, description, mode } });
+    return renderNew(req, res, { errors, values: { title, description, mode, authorName } });
   }
 
   /* ---- insert the row, then move the bytes into place ---- */
@@ -363,7 +396,8 @@ router.post('/', requireMember, handleUpload, (req, res) => {
     draftId = Number(
       q
         .insert()
-        .run(req.user.id, title, description || null, kind, originalName, originalPath).lastInsertRowid
+        .run(req.user.id, title, description || null, kind, originalName, originalPath, authorName)
+        .lastInsertRowid
     );
 
     const dir = draftDir(draftId);
@@ -399,7 +433,7 @@ router.post('/', requireMember, handleUpload, (req, res) => {
     }
     const message = 'We could not store that upload. Please try again.';
     if (wantsJson) return res.status(500).json({ ok: false, errors: [message] });
-    return renderNew(req, res, { errors: [message], values: { title, description, mode } });
+    return renderNew(req, res, { errors: [message], values: { title, description, mode, authorName } });
   }
 
   setImmediate(() => {
@@ -410,6 +444,51 @@ router.post('/', requireMember, handleUpload, (req, res) => {
   const location = `/drafts/${draftId}`;
   if (wantsJson) return res.status(201).json({ ok: true, id: draftId, redirect: location });
   return res.redirect(location);
+});
+
+/* ---------------- edit ----------------
+ *
+ * UPLOADER (OR THE ARCHITECT) ONLY — deliberately narrower than retry/delete
+ * below, which any leader can also do. A leader moderates (removes a draft
+ * that should not be here); they do not get to rewrite whose name is
+ * credited on someone else's work. canEditAuthor(), not canManage(), guards
+ * both routes — a plain leader gets 403 here exactly like any other member.
+ *
+ * Just the byline for now. This is meant to grow into the fuller per-draft
+ * edit surface (title, description, discussion topic, swapping the file)
+ * without moving — a later change should be able to add fields to
+ * views/drafts/edit.ejs and this handler rather than invent a new route.
+ */
+router.get('/:id/edit', requireMember, (req, res, next) => {
+  const draft = q.byId().get(Number(req.params.id));
+  if (!draft) return next();
+  if (!canEditAuthor(req.user, draft)) {
+    const err = new Error('Only the person who uploaded this draft (or the architect) can edit it.');
+    err.status = 403;
+    return next(err);
+  }
+  res.render('drafts/edit', {
+    title: `Edit — ${draft.title}`,
+    pageCss: ['/css/drafts.css'],
+    draft,
+    errors: [],
+    values: { authorName: draft.author_name || '' },
+    limits: { maxAuthorChars: MAX_AUTHOR_CHARS },
+  });
+});
+
+router.post('/:id/edit', requireMember, (req, res, next) => {
+  const draft = q.byId().get(Number(req.params.id));
+  if (!draft) return next();
+  if (!canEditAuthor(req.user, draft)) {
+    const err = new Error('Only the person who uploaded this draft (or the architect) can edit it.');
+    err.status = 403;
+    return next(err);
+  }
+  const authorName = sanitizeAuthorName((req.body || {}).author_name);
+  q.updateAuthorName().run(authorName, draft.id);
+  flash(res, 'ok', authorName ? 'Byline updated.' : 'Byline cleared — showing your display name again.');
+  return res.redirect(`/drafts/${draft.id}`);
 });
 
 /* ---------------- retry & delete ---------------- */

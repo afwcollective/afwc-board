@@ -95,10 +95,10 @@ import { Hono } from 'hono';
 
 import { one, all, run, stmt } from '../db.js';
 import { requireMember, HttpError } from '../auth/middleware.js';
-import { isLeaderUser } from '../auth/roles.js';
+import { isLeaderUser, isArchitectUser } from '../auth/roles.js';
 import { flash } from '../util/flash.js';
 import { cleanHtml, toPlainText } from '../util/sanitize.js';
-import { getFormData, field } from '../util/body.js';
+import { getFormData, getBody, field } from '../util/body.js';
 import { render } from '../render.js';
 import * as files from '../services/drafts/attachments.js';
 import * as retention from '../services/retention.js';
@@ -128,6 +128,23 @@ const MAX_DIMENSION = 20000;
 
 /** How many rows go into one D1 batch when a 2000-page PDF is finalized. */
 const ROWS_PER_BATCH = 200;
+
+/** The pen-name / author-credit field on the upload form and its edit route. */
+const MAX_AUTHOR_CHARS = 80;
+
+/**
+ * Strip tags, trim, clamp to MAX_AUTHOR_CHARS, and fold an empty result to
+ * `null` — NULL is what COALESCE-in-the-template (`author_name ||
+ * uploader_name`) treats as "nothing was set, use the display name". Runs
+ * through the same house allowlist as everything else user-typed, so a
+ * hand-crafted `<script>` in this field is inert before it ever reaches the
+ * database, not merely escaped on the way back out. Port of
+ * src/routes/drafts.js's sanitizeAuthorName, verbatim.
+ */
+function sanitizeAuthorName(raw) {
+  const clean = toPlainText(String(raw == null ? '' : raw)).trim().slice(0, MAX_AUTHOR_CHARS);
+  return clean || null;
+}
 
 /**
  * The upload multipart body cap, checked from Content-Length before anything is
@@ -175,7 +192,7 @@ const q = {
     all(
       db,
       `SELECT d.id, d.title, d.description, d.kind, d.status, d.error_msg, d.page_count,
-              d.original_filename, d.created_at, d.user_id,
+              d.original_filename, d.created_at, d.user_id, d.author_name,
               u.display_name AS uploader_name,
               (SELECT COUNT(*) FROM comments c
                 WHERE c.draft_id = d.id AND c.deleted_at IS NULL) AS comment_count,
@@ -200,6 +217,18 @@ const q = {
 };
 
 const canManage = (user, draft) => !!user && (user.id === draft.user_id || isLeaderUser(user));
+
+/**
+ * The byline is the uploader's own call, not a leader override — a leader can
+ * still remove a whole draft (moderation), but cannot rewrite whose name is
+ * on someone else's work. The one exception is the architect, the board's
+ * single god-mode account (worker/src/auth/roles.js) — every other
+ * permission check in this file gives leader and architect the same power via
+ * canManage() (isLeaderUser is true for both), but this one deliberately does
+ * not: a plain leader gets 403 here, same as any other member. Port of
+ * src/routes/drafts.js's canEditAuthor, verbatim.
+ */
+const canEditAuthor = (user, draft) => !!user && (user.id === draft.user_id || isArchitectUser(user));
 
 /** What R2 labels a stored original with. Never used to decide anything. */
 const DOC_MIME = {
@@ -305,12 +334,14 @@ async function newLocals(c, errors = [], values = {}) {
       title: values.title || '',
       description: values.description || '',
       mode: values.mode || 'document',
+      authorName: values.authorName || '',
     },
     limits: {
       maxDocMb: files.MAX_DOC_BYTES / 1024 / 1024,
       maxImageMb: files.MAX_IMAGE_BYTES / 1024 / 1024,
       maxImagesTotalMb: files.MAX_IMAGES_TOTAL_BYTES / 1024 / 1024,
       maxImages: files.MAX_IMAGES,
+      maxAuthorChars: MAX_AUTHOR_CHARS,
     },
     /*
      * The one local views/drafts/new.ejs takes that Express does not set — see
@@ -354,6 +385,7 @@ router.post('/', async (c) => {
   const { fields, files: parts } = await getFormData(c);
   const title = String(field(fields, 'title') || '').trim().slice(0, 160);
   const description = String(field(fields, 'description') || '').trim().slice(0, 2000);
+  const authorName = sanitizeAuthorName(field(fields, 'author_name'));
   const mode = field(fields, 'mode') === 'images' ? 'images' : 'document';
   const docFiles = parts.document || [];
   const imageFiles = parts.images || [];
@@ -417,7 +449,7 @@ router.post('/', async (c) => {
   if (errors.length) {
     return wantsJson
       ? c.json({ ok: false, errors }, 400, NO_STORE)
-      : render(c, 'drafts/new', await newLocals(c, errors, { title, description, mode }), 400);
+      : render(c, 'drafts/new', await newLocals(c, errors, { title, description, mode, authorName }), 400);
   }
 
   /* ---- the row and its thread, then the bytes ----
@@ -441,14 +473,15 @@ router.post('/', async (c) => {
   const created = await db.batch([
     stmt(
       db,
-      `INSERT INTO drafts (user_id, title, description, kind, status, original_filename, original_path)
-       VALUES (?, ?, ?, ?, 'processing', ?, ?)`,
+      `INSERT INTO drafts (user_id, title, description, kind, status, original_filename, original_path, author_name)
+       VALUES (?, ?, ?, ?, 'processing', ?, ?, ?)`,
       user.id,
       title,
       description || null,
       kind,
       originalName,
-      originalRel
+      originalRel,
+      authorName
     ),
     stmt(
       db,
@@ -499,7 +532,7 @@ router.post('/', async (c) => {
     const message = 'We could not store that upload. Please try again.';
     return wantsJson
       ? c.json({ ok: false, errors: [message] }, 500, NO_STORE)
-      : render(c, 'drafts/new', await newLocals(c, [message], { title, description, mode }), 500);
+      : render(c, 'drafts/new', await newLocals(c, [message], { title, description, mode, authorName }), 500);
   }
 
   flash(c, 'ok', 'Uploaded. Converting it for the reader now — this page updates itself.');
@@ -710,6 +743,51 @@ router.post('/:id/fail', async (c) => {
     'Conversion failed.';
   await markFailed(c.env.DB, draft.id, message);
   return c.json({ ok: true, id: draft.id, redirect: `/drafts/${draft.id}` }, 200, NO_STORE);
+});
+
+/* ---------------- edit ----------------
+ *
+ * UPLOADER (OR THE ARCHITECT) ONLY — deliberately narrower than retry/delete
+ * below, which any leader can also do. A leader moderates (removes a draft
+ * that should not be here); they do not get to rewrite whose name is
+ * credited on someone else's work. canEditAuthor(), not canManage(), guards
+ * both routes — a plain leader gets 403 here exactly like any other member.
+ * Port of src/routes/drafts.js's GET/POST /:id/edit.
+ *
+ * Just the byline for now. This is meant to grow into the fuller per-draft
+ * edit surface (title, description, discussion topic, swapping the file)
+ * without moving — a later change should be able to add fields to
+ * views/drafts/edit.ejs and this handler rather than invent a new route.
+ */
+router.get('/:id/edit', async (c) => {
+  const draft = await q.byId(c.env.DB, Number(c.req.param('id')));
+  if (!draft) throw new HttpError(404, 'That draft is not here.');
+  if (!canEditAuthor(c.get('currentUser'), draft)) {
+    throw new HttpError(403, 'Only the person who uploaded this draft (or the architect) can edit it.');
+  }
+  return render(c, 'drafts/edit', {
+    title: `Edit — ${draft.title}`,
+    pageCss: ['/css/drafts.css'],
+    draft,
+    errors: [],
+    values: { authorName: draft.author_name || '' },
+    limits: { maxAuthorChars: MAX_AUTHOR_CHARS },
+  });
+});
+
+router.post('/:id/edit', async (c) => {
+  const db = c.env.DB;
+  const user = c.get('currentUser');
+  const draft = await q.byId(db, Number(c.req.param('id')));
+  if (!draft) throw new HttpError(404, 'That draft is not here.');
+  if (!canEditAuthor(user, draft)) {
+    throw new HttpError(403, 'Only the person who uploaded this draft (or the architect) can edit it.');
+  }
+  const body = await getBody(c);
+  const authorName = sanitizeAuthorName(field(body, 'author_name'));
+  await run(db, `UPDATE drafts SET author_name = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?`, authorName, draft.id);
+  flash(c, 'ok', authorName ? 'Byline updated.' : 'Byline cleared — showing your display name again.');
+  return c.redirect(`/drafts/${draft.id}`, 302);
 });
 
 /* ---------------- retry & delete ---------------- */

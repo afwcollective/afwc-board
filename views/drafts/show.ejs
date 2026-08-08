@@ -10,12 +10,22 @@
 
   <div class="reader-bar">
     <div class="reader-wrap reader-bar-inner">
+      <%
+        /* BYLINE — see the matching comment in views/drafts/index.ejs. Same
+           COALESCE and same least-noisy moderation tooltip, on the one draft
+           this page is already looking at. */
+        var draftByline = draft.author_name || draft.uploader_name;
+        var showByAttribution = !!draft.author_name && (isLeader || (currentUser && currentUser.id === draft.user_id));
+      %>
       <div class="reader-id">
         <a class="reader-back" href="/drafts" title="Back to the library">Library</a>
         <h1 class="reader-title"><%= draft.title %></h1>
         <p class="reader-by mono small">
           <span class="badge badge--kind"><%= kindLabel %></span>
-          <%= draft.uploader_name %>
+          <span<% if (showByAttribution) { %> title="Shared by <%= draft.uploader_name %>"<% } %>><%= draftByline %></span>
+          <% if (currentUser && (currentUser.id === draft.user_id || isArchitect)) { %>
+            <span class="dot">·</span><a class="reader-edit-link" href="/drafts/<%= draft.id %>/edit">Edit byline</a>
+          <% } %>
           <% if (draft.status === 'ready') { %>
             <span class="dot">·</span><%= draft.page_count %> page<%= draft.page_count === 1 ? '' : 's' %>
           <% } %>

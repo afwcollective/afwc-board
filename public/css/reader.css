@@ -80,6 +80,14 @@
 }
 .reader-by .dot { color: var(--hair); }
 
+.reader-edit-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--hair);
+  text-underline-offset: 2px;
+}
+.reader-edit-link:hover { color: var(--blue); text-decoration-color: var(--blue); }
+
 .reader-tools {
   display: flex;
   align-items: center;
