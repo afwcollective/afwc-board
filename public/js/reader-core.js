@@ -72,6 +72,8 @@
   var prevBtn = root.querySelector('[data-page-prev]');
   var nextBtn = root.querySelector('[data-page-next]');
   var sectionNav = root.querySelector('[data-section-nav]');
+  var readoutBtn = root.querySelector('[data-page-readout]');
+  var jumpInput = root.querySelector('[data-page-jump]');
 
   function clamp(n) {
     n = Math.round(Number(n) || 1);
@@ -144,6 +146,70 @@
     });
   }
 
+  /**
+   * Jump-to-page: the "n / N" readout is a real <button> so it is reachable
+   * and activatable from the keyboard; activating it swaps it for a number
+   * input pinned to the same slot (CSS reserves the width so nothing shifts).
+   * Enter or blur commits through the ONE navigation path — api.goTo, same as
+   * the pager arrows and the section menu — so the hash, the lazy render and
+   * the comments panel all stay in sync. Escape cancels without navigating.
+   */
+  var suppressJumpBlur = false;
+
+  function openJump() {
+    if (!jumpInput || !readoutBtn) return;
+    jumpInput.max = String(api.pageCount || 1);
+    jumpInput.value = String(api.current);
+    readoutBtn.hidden = true;
+    jumpInput.hidden = false;
+    jumpInput.focus();
+    jumpInput.select();
+  }
+
+  function closeJump() {
+    if (!jumpInput || !readoutBtn) return;
+    suppressJumpBlur = true;
+    jumpInput.hidden = true;
+    readoutBtn.hidden = false;
+    window.setTimeout(function () {
+      suppressJumpBlur = false;
+    }, 0);
+  }
+
+  function commitJump() {
+    if (!jumpInput || jumpInput.hidden) return;
+    var raw = jumpInput.value;
+    closeJump();
+    if (raw === '' || raw == null) return; // nothing typed — treat like cancel
+    api.goTo(raw, { source: 'pager' });
+  }
+
+  function cancelJump() {
+    if (!jumpInput || jumpInput.hidden) return;
+    closeJump();
+  }
+
+  if (readoutBtn) {
+    readoutBtn.addEventListener('click', openJump);
+  }
+  if (jumpInput) {
+    jumpInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commitJump();
+        if (readoutBtn) readoutBtn.focus();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cancelJump();
+        if (readoutBtn) readoutBtn.focus();
+      }
+    });
+    jumpInput.addEventListener('blur', function () {
+      if (suppressJumpBlur) return;
+      commitJump();
+    });
+  }
+
   document.addEventListener('keydown', function (e) {
     if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
     var el = document.activeElement;
@@ -155,6 +221,9 @@
       e.preventDefault();
     } else if (e.key === 'ArrowRight') {
       api.goTo(api.current + 1, { source: 'key' });
+      e.preventDefault();
+    } else if (e.key === 'g' && jumpInput) {
+      openJump();
       e.preventDefault();
     }
   });

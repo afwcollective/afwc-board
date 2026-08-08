@@ -51,8 +51,14 @@
         <% if (draft.status === 'ready') { %>
           <div class="pager" data-pager>
             <button type="button" class="btn btn--sm" data-page-prev aria-label="Previous page">‹</button>
-            <span class="pager-readout mono">
-              <span data-page-current>1</span> / <span data-page-total><%= draft.page_count %></span>
+            <span class="pager-readout-wrap" data-pager-readout-wrap>
+              <button type="button" class="pager-readout mono" data-page-readout
+                      aria-label="Jump to page" title="Jump to page">
+                <span data-page-current>1</span> / <span data-page-total><%= draft.page_count %></span>
+              </button>
+              <input type="number" inputmode="numeric" class="pager-jump mono" data-page-jump
+                     min="1" max="<%= draft.page_count %>" value="1"
+                     aria-label="Jump to page" title="Jump to page" hidden>
             </span>
             <%# unresolved threads on the page you are looking at — comments.js fills it %>
             <span class="pager-open mono" data-page-open hidden

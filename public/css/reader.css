@@ -117,13 +117,60 @@
 .pager .btn { border: 0; padding: 6px 12px; font-size: 15px; line-height: 1; }
 .pager .btn[disabled] { opacity: .3; cursor: default; }
 .pager .btn[disabled]:hover { background: transparent; color: var(--ink); }
+/* the readout doubles as the jump-to-page trigger: a button and a number
+   input share one reserved slot so activating it never shifts the pager's
+   width (see the click/keydown wiring in reader-core.js). */
+.pager-readout-wrap {
+  position: relative;
+  display: inline-flex;
+  min-width: 68px;
+}
 .pager-readout {
+  flex: 1 1 auto;
+  font-family: var(--mono);
   font-size: 12px;
   letter-spacing: .1em;
   color: var(--ink-3);
   min-width: 68px;
   text-align: center;
+  border: 0;
+  background: none;
+  padding: 2px 0;
+  cursor: pointer;
 }
+.pager-readout:hover,
+.pager-readout:focus-visible {
+  color: var(--ink);
+  outline: none;
+  text-decoration: underline;
+  text-decoration-color: var(--hair);
+}
+.pager-readout[hidden] { display: none; }
+
+.pager-jump {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 68px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: .06em;
+  text-align: center;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--hair);
+  padding: 1px 2px;
+  -moz-appearance: textfield;
+}
+.pager-jump::-webkit-outer-spin-button,
+.pager-jump::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.pager-jump:focus {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+.pager-jump[hidden] { display: none; }
 
 /* how many comment threads on THIS page are still open — filled by comments.js */
 .pager-open {
