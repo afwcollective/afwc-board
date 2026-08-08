@@ -609,6 +609,16 @@
 
 /* ---------------- narrow: bottom sheet ---------------- */
 
+/* The reader has two floating controls for leaders/hosts: the comments tab
+   (ours, bottom-right) and the site-wide timer chip (timer.css, also
+   bottom-right). On this page the chip yields the corner and sits bottom-LEFT
+   below 620px; `html` prefix outranks timer.css's equal-specificity rule
+   regardless of stylesheet order. */
+@media (max-width: 619px) {
+  html .timer-widget { right: auto; left: var(--s4); }
+  html .timer-widget .timer-panel { right: auto; left: 0; }
+}
+
 .rc-tab {
   position: fixed;
   right: var(--s4);
