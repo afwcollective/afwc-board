@@ -68,7 +68,12 @@
         <div class="card card--meeting">
           <% if (meeting) { %>
             <p class="eyebrow eyebrow--muted">
-              <%= dates.relative(meeting.starts_at) %><% if (meeting.is_recurring) { %> · every <%= dates.weekdayName(meeting.weekday) %><% } %>
+              <% if (meeting.inProgress) { %>
+                <span class="badge badge--live">Happening now</span> since <%= dates.formatTime(meeting.starts_at) %>
+              <% } else { %>
+                <%= dates.relative(meeting.starts_at) %>
+              <% } %>
+              <% if (meeting.is_recurring) { %> · every <%= dates.weekdayName(meeting.weekday) %><% } %>
             </p>
             <p class="meeting-date">
               <time datetime="<%= dates.isoAttr(meeting.starts_at) %>"><%= dates.formatDate(meeting.starts_at) %></time>

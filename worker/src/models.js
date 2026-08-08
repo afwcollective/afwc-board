@@ -128,15 +128,24 @@ const MEETING_SELECT = `
     LEFT JOIN users hu ON hu.id = m.host_user_id`;
 
 export const meetings = {
-  /** The one the landing page shows: soonest future, not cancelled, not deleted. */
-  next: (db) =>
-    one(
+  /**
+   * The one the landing page shows: soonest current-or-future, not cancelled,
+   * not deleted. "Current" means it started at most dates.SESSION_LINGER_MS
+   * ago — the floor is `from - SESSION_LINGER_MS`, not `from`, so a meeting
+   * that just started keeps being "next" instead of vanishing from this query
+   * the instant its start time passes.
+   */
+  next: (db, from = new Date()) => {
+    const fromDate = dates.toDate(from) || new Date();
+    const floor = new Date(fromDate.getTime() - dates.SESSION_LINGER_MS).toISOString();
+    return one(
       db,
       `${MEETING_SELECT}
         WHERE m.deleted_at IS NULL AND m.is_cancelled = 0 AND m.starts_at >= ?
         ORDER BY m.starts_at ASC LIMIT 1`,
-      new Date().toISOString()
-    ),
+      floor
+    );
+  },
 
   /**
    * What the landing page actually shows: the soonest of (a) the next one-off
@@ -145,13 +154,16 @@ export const meetings = {
    * already merged in.
    *
    * Always returns a meetings-row shape — plus `is_recurring`, `recurring_id`,
-   * `local_date`, `host_name` and `overridden` — so home.ejs reads one object
-   * either way.
+   * `local_date`, `host_name`, `overridden` and `inProgress` — so home.ejs
+   * reads one object either way. `inProgress` is true from the moment this
+   * session starts until dates.SESSION_LINGER_MS later — the landing page and
+   * admin dashboard use it to swap the "in 3 days"-style relative line for a
+   * "Happening now" treatment instead of silently reading like next week's.
    */
   nextUnified: async (db, from = new Date()) => {
     const candidates = [];
 
-    const oneOff = await meetings.next(db);
+    const oneOff = await meetings.next(db, from);
     if (oneOff) {
       candidates.push({
         ...oneOff,
@@ -174,7 +186,14 @@ export const meetings = {
     }
 
     candidates.sort((a, b) => String(a.starts_at).localeCompare(String(b.starts_at)));
-    return candidates[0] || null;
+    const winner = candidates[0] || null;
+    if (winner) {
+      const fromMs = (dates.toDate(from) || new Date()).getTime();
+      const startMs = new Date(winner.starts_at).getTime();
+      winner.inProgress =
+        Number.isFinite(startMs) && fromMs >= startMs && fromMs < startMs + dates.SESSION_LINGER_MS;
+    }
+    return winner;
   },
 
   /**
@@ -394,10 +413,26 @@ export const recurring = {
   /**
    * The next occurrence of `rule` that nobody has skipped, or null if every
    * occurrence in the next half-year is skipped (which would be quite the year).
+   *
+   * Passes dates.SESSION_LINGER_MS through to nextOccurrences so an occurrence
+   * that has already started keeps counting as "next" (i.e. current) until
+   * 4 hours after it began — see dates.SESSION_LINGER_MS. The skip lookup's
+   * floor is pulled back by the same amount, for the same reason nextOccurrences
+   * anchors its calendar walk early: a rule skipped for a date that started
+   * late last night must still be honoured while that date's linger window is
+   * technically still open past midnight.
    */
   nextOccurrence: async (db, rule, from = new Date()) => {
-    const skipped = new Set(await recurring.skipDates(db, rule.id, dates.localDateKey(from)));
-    const candidates = dates.nextOccurrences(rule.weekday, rule.time_hhmm, SKIP_LOOKAHEAD_WEEKS, from);
+    const fromDate = dates.toDate(from) || new Date();
+    const skipFloor = dates.localDateKey(new Date(fromDate.getTime() - dates.SESSION_LINGER_MS));
+    const skipped = new Set(await recurring.skipDates(db, rule.id, skipFloor));
+    const candidates = dates.nextOccurrences(
+      rule.weekday,
+      rule.time_hhmm,
+      SKIP_LOOKAHEAD_WEEKS,
+      from,
+      dates.SESSION_LINGER_MS
+    );
     return candidates.find((occ) => !skipped.has(occ.local_date)) || null;
   },
 
@@ -541,14 +576,27 @@ export const hosts = {
 
   /**
    * One statement, one row, no joins: does this member have any hosting
-   * assignment between the start of today (Baltimore) and 30 days out? This is
-   * what loadUser calls per request to publish isHost, so it has to stay this
-   * cheap.
+   * assignment between "now" (minus a linger allowance) and 30 days out? This
+   * is what loadUser calls per request to publish isHost — which gates /timer
+   * access, not just a view hint (see worker/src/routes/timer.js) — so it has
+   * to stay this cheap AND must not go false while a member is mid-session, or
+   * a host running the timer would lose access to their own clock.
+   *
+   * The one-off half is exact: floorIso is `now - SESSION_LINGER_MS`, an
+   * instant, so a meeting drops out of "upcoming" the moment its 4-hour linger
+   * (dates.SESSION_LINGER_MS) actually elapses. occurrence_hosts has no time
+   * column to be that precise with cheaply, so the recurring half stays
+   * day-granular like it always was, just widened by one calendar day on the
+   * near side — otherwise a weekly occurrence starting late at night and still
+   * inside its linger window past midnight would be missed purely because
+   * local_date has already rolled over to "today".
    */
   hasUpcoming: async (db, userId, days = 30) => {
-    const today = dates.localDateKey(new Date());
+    const now = new Date();
+    const today = dates.localDateKey(now);
     const until = dates.addLocalDays(today, days);
-    const floorIso = dates.localInputToUtcIso(`${today}T00:00`) || new Date().toISOString();
+    const recurFloor = dates.addLocalDays(today, -1);
+    const floorIso = new Date(now.getTime() - dates.SESSION_LINGER_MS).toISOString();
     const untilIso = dates.localInputToUtcIso(`${until}T23:59`) || floorIso;
     const row = await one(
       db,
@@ -559,7 +607,7 @@ export const hosts = {
          EXISTS (SELECT 1 FROM meetings
                   WHERE host_user_id = ? AND deleted_at IS NULL AND is_cancelled = 0
                     AND starts_at >= ? AND starts_at <= ?) AS yes`,
-      userId, today, until,
+      userId, recurFloor, until,
       userId, floorIso, untilIso
     );
     return !!(row && row.yes);
@@ -575,10 +623,21 @@ export const hosts = {
    *   paused      weekly only: the whole rule is deactivated
    * A date whose rule is paused or skipped still appears — with a note — rather
    * than silently vanishing from the host's list.
+   *
+   * A session in progress (within dates.SESSION_LINGER_MS of its start) still
+   * counts as this host's to manage, same as everywhere else this window
+   * applies. The recurring query is fetched from one calendar day earlier than
+   * "today" so a late-night occurrence still inside its linger window past
+   * midnight isn't missed by local_date's day granularity, but that also pulls
+   * in genuinely-over dates from yesterday — those are dropped below once each
+   * row's actual starts_at is known, so a host never sees a stale session sit
+   * on this list forever.
    */
   upcomingForUser: async (db, userId, days = 30) => {
-    const today = dates.localDateKey(new Date());
+    const now = new Date();
+    const today = dates.localDateKey(now);
     const until = dates.addLocalDays(today, days);
+    const queryFrom = dates.addLocalDays(today, -1);
     const out = [];
 
     const assignments = await all(
@@ -589,7 +648,7 @@ export const hosts = {
         WHERE oh.user_id = ? AND oh.local_date >= ? AND oh.local_date <= ?
         ORDER BY oh.local_date ASC`,
       userId,
-      today,
+      queryFrom,
       until
     );
 
@@ -608,6 +667,10 @@ export const hosts = {
       const starts_at = dates.localInputToUtcIso(
         `${a.local_date}T${(override && override.time_hhmm) || a.time_hhmm}`
       );
+      if (a.local_date < today) {
+        const startMs = new Date(starts_at).getTime();
+        if (!Number.isFinite(startMs) || now.getTime() - startMs >= dates.SESSION_LINGER_MS) continue;
+      }
       const shaped = recurring.asMeeting(rule, { local_date: a.local_date, starts_at }, { override });
       out.push({
         ...shaped,
@@ -623,7 +686,7 @@ export const hosts = {
       });
     }
 
-    const floorIso = dates.localInputToUtcIso(`${today}T00:00`) || new Date().toISOString();
+    const floorIso = new Date(now.getTime() - dates.SESSION_LINGER_MS).toISOString();
     const untilIso = dates.localInputToUtcIso(`${until}T23:59`) || floorIso;
     const oneOffs = await all(
       db,

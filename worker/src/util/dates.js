@@ -127,6 +127,20 @@ const isoAttr = (v) => {
  * (a 5:30 PM Monday would become 4:30 PM after the November fall-back).
  */
 
+/**
+ * How long a session (a recurring occurrence OR a one-off meeting) stays "the
+ * current session" after it starts. Owner decision, 2026-08-07: a member
+ * showed up at 1:30 PM Saturday to a 1:00 PM session and found the landing
+ * page and floor-map pin had already flipped to Monday's meeting — the very
+ * moment the clock passed the start time, "next" advanced. The fix is a
+ * 4-hour linger: `nextOccurrences`, `meetings.next`/`nextUnified`, and the
+ * host-access windows all treat a session as current until start + this many
+ * milliseconds, not until start. Adding this to a UTC instant (starts_at) is
+ * DST-safe on its own — the drift risk described above is only about
+ * generating the wall-clock candidate in the first place.
+ */
+const SESSION_LINGER_MS = 4 * 60 * 60 * 1000;
+
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 /** "Saturday" from a stored weekday number, or '' if it is out of range. */
@@ -181,9 +195,15 @@ function localDayOfWeek(key) {
  * from `from` (default: now) in Baltimore wall-clock terms.
  *
  * Returns [{ local_date: 'YYYY-MM-DD', starts_at: ISO UTC, date: Date }, …].
- * An occurrence happening later today counts; one that already started does not.
+ * An occurrence happening later today counts; one that already started does
+ * not — UNLESS `lingerMs` says otherwise (default 0, i.e. unchanged): an
+ * occurrence still counts as long as `from` is before its start + lingerMs.
+ * Callers that want "the current session, not the next one" pass
+ * SESSION_LINGER_MS here (see models.js's recurring.nextOccurrence); callers
+ * building a plain list of upcoming dates (the admin "skip a date" / "give
+ * this to a host" pickers) pass nothing and get the old strictly-future rule.
  */
-function nextOccurrences(weekdayNum, time_hhmm, count = 1, from = new Date()) {
+function nextOccurrences(weekdayNum, time_hhmm, count = 1, from = new Date(), lingerMs = 0) {
   const wd = Number(weekdayNum);
   const time = normalizeHhmm(time_hhmm);
   if (!Number.isInteger(wd) || wd < 0 || wd > 6 || !time) return [];
@@ -191,7 +211,10 @@ function nextOccurrences(weekdayNum, time_hhmm, count = 1, from = new Date()) {
   if (!n) return [];
 
   const fromDate = toDate(from) || new Date();
-  const today = localDateKey(fromDate);
+  // Anchor the calendar walk `lingerMs` earlier than `from` so an occurrence
+  // that started just before midnight and is still inside its linger window
+  // is not skipped merely because its local_date is now "yesterday".
+  const today = localDateKey(new Date(fromDate.getTime() - lingerMs));
   let key = addLocalDays(today, (wd - localDayOfWeek(today) + 7) % 7);
 
   const out = [];
@@ -199,7 +222,7 @@ function nextOccurrences(weekdayNum, time_hhmm, count = 1, from = new Date()) {
   for (let guard = 0; out.length < n && guard < n + 2; guard += 1) {
     const iso = localInputToUtcIso(`${key}T${time}`);
     const d = iso ? new Date(iso) : null;
-    if (d && d.getTime() > fromDate.getTime()) {
+    if (d && d.getTime() + lingerMs > fromDate.getTime()) {
       out.push({ local_date: key, starts_at: iso, date: d });
     }
     key = addLocalDays(key, 7);
@@ -228,6 +251,7 @@ const nowIso = () => new Date().toISOString();
 
 export {
   TZ,
+  SESSION_LINGER_MS,
   toDate,
   nowIso,
   localInputToUtcIso,

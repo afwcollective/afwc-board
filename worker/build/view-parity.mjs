@@ -48,7 +48,7 @@ const meeting = {
   map_x: 15, map_y: 59.7, is_cancelled: 0, kind: 'rhouse', address: null,
   body_html: null, host_user_id: 2, host_name: 'Dana', is_recurring: true,
   recurring_id: 1, weekday: 6, time_hhmm: '13:00', local_date: '2026-08-15',
-  overridden: false,
+  overridden: false, inProgress: false,
 };
 const ann = {
   id: 1, title: 'The board is open', body_html: '<p>Hello.</p>', body_md: 'Hello.',
@@ -578,6 +578,15 @@ const VARIANTS = [
    */
   ['admin/dashboard', 'legacy passcode (hash only, no plaintext on file)', { groupPasscode: null }],
   ['admin/dashboard', 'no passcode set yet', { groupPasscode: null, passcodeSet: false }],
+
+  /*
+   * SESSION LINGER (dates.SESSION_LINGER_MS) — the "Happening now" branch on
+   * the two next-session cards. `meeting.inProgress` is computed by
+   * models.js's meetings.nextUnified; these pin the badge + "since <time>"
+   * markup that replaces the ordinary dates.relative() line while it's true.
+   */
+  ['home', 'happening now (session linger)', { meeting: { ...meeting, inProgress: true } }],
+  ['admin/dashboard', 'happening now (session linger)', { meeting: { ...meeting, inProgress: true } }],
   ['admin/passcode', 'legacy passcode (hash only, no plaintext on file)', { groupPasscode: null }],
   ['admin/passcode', 'no passcode set yet', { groupPasscode: null, passcodeSet: false }],
 ];

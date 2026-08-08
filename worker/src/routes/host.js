@@ -112,15 +112,21 @@ async function loadOccurrence(c) {
   const mine = !!host && host.user_id === user.id;
   if (!mine && !isLeaderUser(user)) throw new HttpError(403, NOT_YOURS);
 
-  const starts_at = dates.localInputToUtcIso(`${date}T${rule.time_hhmm}`);
+  const override = await hosts.override(db, rule.id, date);
+  const starts_at = dates.localInputToUtcIso(`${date}T${(override && override.time_hhmm) || rule.time_hhmm}`);
   return {
     rule,
     date,
     host,
     mine,
     starts_at,
-    override: await hosts.override(db, rule.id, date),
-    past: date < dates.localDateKey(new Date()),
+    override,
+    /* Tracks the same dates.SESSION_LINGER_MS window the landing page uses,
+       rather than a bare calendar-date check, so a host mid-session keeps
+       edit access exactly as long as the front page still shows them as the
+       current session — including across a midnight rollover on a session
+       that starts late at night. */
+    past: Date.now() - new Date(starts_at).getTime() >= dates.SESSION_LINGER_MS,
   };
 }
 
@@ -209,8 +215,9 @@ async function loadHostedMeeting(c) {
   const user = c.get('currentUser');
   const mine = !!meeting.host_user_id && meeting.host_user_id === user.id;
   if (!mine && !isLeaderUser(user)) throw new HttpError(403, NOT_YOURS);
-  const todayFloor = dates.localInputToUtcIso(`${dates.localDateKey(new Date())}T00:00`);
-  return { meeting, mine, past: String(meeting.starts_at) < String(todayFloor) };
+  // Same dates.SESSION_LINGER_MS window as the recurring path above.
+  const past = Date.now() - new Date(meeting.starts_at).getTime() >= dates.SESSION_LINGER_MS;
+  return { meeting, mine, past };
 }
 
 function renderMeeting(c, ctx, { values, errors = [], status = 200 }) {

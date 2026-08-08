@@ -676,6 +676,14 @@ p:last-child { margin-bottom: 0; }
    and nowhere near the R. House red, which only ever means "we sit here". */
 .badge--architect { border-color: var(--ink); color: #fff; background: var(--ink); }
 
+/* SESSION LINGER — the landing page and admin dashboard cards keep showing
+   the CURRENT session for dates.SESSION_LINGER_MS (4h) after it starts,
+   rather than flipping to next week's the instant the clock passes the start
+   time. Solid blue, same weight as .badge--architect, deliberately nowhere
+   near the R. House red, which is reserved for the floor-map "we sit here"
+   marker only. */
+.badge--live { border-color: var(--blue); color: #fff; background: var(--blue); }
+
 /* Controls that sit inline in a table cell next to a .btn--sm, rather than in
    a .field stack: same shell, sized to the row. */
 .inline-input {
