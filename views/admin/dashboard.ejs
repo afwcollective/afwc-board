@@ -221,7 +221,7 @@
             <span class="badge badge--warn">Never backed up</span>
           <% } %>
         </p>
-        <p><a class="btn btn--sm btn--primary" href="/admin/backup.zip">Download backup</a></p>
+        <p><a class="btn btn--sm btn--primary" href="<%= typeof backupHref !== 'undefined' ? backupHref : '/admin/backup.zip' %>"><%= typeof backupLabel !== 'undefined' ? backupLabel : 'Download backup' %></a></p>
       </div>
 
       <a class="card shortcut-card" href="/admin/help">

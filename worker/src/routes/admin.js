@@ -15,7 +15,9 @@
  *   * `db.transaction` becomes `db.batch` in the one place this file used it —
  *     the architect hand-over, where two role UPDATEs must land together or not
  *     at all;
- *   * /admin/backup.zip is a placeholder until P5 (see the note above it).
+ *   * /admin/backup.zip forwards to /admin/backup, a real page as of P5 — see
+ *     the "backup" section near the bottom of this file and
+ *     worker/src/services/backup.js for the whole story.
  *
  * The MULTIPART + CSRF arrangement is unchanged and is the reason the meeting
  * form posts itself as an XHR: checkCsrf runs before any body parser sees a
@@ -49,6 +51,7 @@ import { flash } from '../util/flash.js';
 import { getFormData, field } from '../util/body.js';
 import { render } from '../render.js';
 import { notFound } from './errors.js';
+import * as backup from '../services/backup.js';
 
 const router = new Hono();
 
@@ -122,6 +125,13 @@ router.get('/', async (c) => {
     watermarkOn: watermark === '1',
     lastBackupAt,
     backupStale,
+    // views/admin/dashboard.ejs — SHARED with Express, which never sets these
+    // and falls back to its own hardcoded /admin/backup.zip + "Download
+    // backup" (see the typeof guard there, same pattern P4 used for
+    // retryHint on views/drafts/show.ejs). This stack's backup story is a
+    // page, not a direct file download — see the "backup" section below.
+    backupHref: '/admin/backup',
+    backupLabel: 'Backup options',
   });
 });
 
@@ -1264,28 +1274,116 @@ router.post('/members/:id/reset-code', async (c) => {
 
 /* ---------------------------------------------------------------- backup
  *
- * PLACEHOLDER UNTIL P5. The dashboard's Backup card is part of this phase and
- * its button points here, exactly as it does on Express — but the thing behind
- * it is not a zip any more. On Node, streamBackup walked DATA_DIR and archived
- * the SQLite file plus uploads/; on Workers there is no filesystem, and the
- * export is a D1 dump plus a manifest of R2 keys (PORT-CLOUDFLARE.md §8), which
- * lands with the rest of the scheduled/ops work in P5.
+ * On Node, GET /admin/backup.zip streamed a zip straight from streamBackup()
+ * (src/services/backup.js): a filesystem snapshot of the SQLite file plus the
+ * uploads/ tree. Workers has neither a filesystem nor a synchronous database
+ * snapshot, and building a zip is exactly the kind of CPU work
+ * PORT-CLOUDFLARE.md §6 moved off this stack for ingest — so the export here
+ * is a from-scratch SQL dump (worker/src/services/backup.js) plus an R2
+ * manifest, and "click a link, get a file" becomes "open a page, then choose."
  *
- * Until then the route exists and says so, rather than 404ing a button the
- * shared view always renders. views/ is shared with the Express app and is not
- * this phase's to edit, so "disabled" is expressed in the answer, not the
- * markup: a leader who clicks it is told when it is coming and sent back.
+ * /admin/backup.zip ITSELF STILL EXISTS, forwarding to the real page — the
+ * shared dashboard view has pointed at that exact URL since before this stack
+ * existed (views/admin/help.ejs's handbook remembers it too), and a stale
+ * bookmark or a leader's muscle memory should land somewhere useful rather
+ * than 404. The dashboard card's own link is the guarded `backupHref` local
+ * two routes up, which points straight at /admin/backup and skips the hop.
+ *
+ * lastBackupAt vs lastSnapshotAt — the split this file promised P5:
+ *   - last_backup_at is a LEADER'S action (this file, GET
+ *     /admin/backup/download.sql) and is what the dashboard's 30-day nag
+ *     reads, unchanged from Express — a leader who never downloads anything
+ *     still sees the warning, exactly as before, even though the cron
+ *     snapshot below is quietly happening regardless.
+ *   - last_snapshot_at is the CRON's own record (worker/src/scheduled.js),
+ *     surfaced on /admin/backup as "also backed up automatically" but never
+ *     substituted for last_backup_at — the nag is a nudge to a human, and a
+ *     robot running on schedule doesn't relieve a leader of ever checking in.
  */
 
-router.get('/backup.zip', (c) => {
-  flash(
-    c,
-    'info',
-    'Backups are not wired up on this host yet — the export becomes a database dump ' +
-      'plus a file manifest in a later phase of the move to Cloudflare. Nothing is lost ' +
-      'in the meantime; the data lives in the managed database.'
+router.get('/backup.zip', (c) => c.redirect('/admin/backup', 301));
+
+router.get('/backup', async (c) => {
+  const db = c.env.DB;
+  const [lastBackupAt, lastSnapshotAt, lastSnapshotMonth] = await Promise.all([
+    getSetting(db, 'last_backup_at', null),
+    getSetting(db, 'last_snapshot_at', null),
+    getSetting(db, 'last_snapshot_month', null),
+  ]);
+  const backupStale = !lastBackupAt || Date.now() - new Date(lastBackupAt).getTime() > BACKUP_STALE_MS;
+
+  return render(c, 'admin/backup', {
+    title: 'Backups',
+    bodyClass: 'page-admin',
+    pageCss: ['/css/admin.css'],
+    lastBackupAt,
+    backupStale,
+    lastSnapshotAt,
+    lastSnapshotMonth,
+    r2Prefixes: backup.R2_PREFIXES,
+  });
+});
+
+/**
+ * The CPU budget this route respects. dumpTable's stringify loop is the only
+ * synchronous cost (see worker/src/services/backup.js's header) — measured
+ * locally against the seeded dev database it comes in far under this, but the
+ * check is here, live, rather than trusted from a one-time measurement,
+ * because it is the group's OWN data being dumped, not the fixture's, and a
+ * board that grows for years should keep degrading gracefully instead of
+ * eventually failing a request outright. 8ms leaves headroom under the
+ * ~10ms/request ceiling the Workers free plan gives every other route in this
+ * app for the rest of what a request does (session lookup, rendering).
+ */
+const BACKUP_CPU_BUDGET_MS = 8;
+
+router.get('/backup/download.sql', async (c) => {
+  const db = c.env.DB;
+  const snapshot = await backup.buildSnapshot(db);
+  const stamp = new Date().toISOString().slice(0, 10);
+
+  let body;
+  let filename;
+  let sourceHeader;
+  if (snapshot.cpuMs > BACKUP_CPU_BUDGET_MS) {
+    // Too expensive to build live right now — serve the latest monthly cron
+    // snapshot instead of risking a mid-request CPU-limit kill. See the P5
+    // report for the measured number that set the threshold above.
+    const month = await getSetting(db, 'last_snapshot_month', null);
+    if (!month) {
+      return c.text(
+        'A live backup would take longer than this page allows to build, and no automatic ' +
+          'monthly snapshot has run yet to fall back to. Try again after the 1st of the month, ' +
+          'or ask a developer to trigger one early with `wrangler`.',
+        503
+      );
+    }
+    const fallback = await backup.readSnapshotFromR2(c.env, month);
+    body = fallback.text;
+    filename = `afwc-backup-snapshot-${month}.sql`;
+    sourceHeader = `cron-snapshot-${month}`;
+  } else {
+    body = backup.combineSnapshot(snapshot);
+    filename = `afwc-backup-${stamp}.sql`;
+    sourceHeader = 'live';
+  }
+
+  await setSetting(db, 'last_backup_at', new Date().toISOString());
+  console.log(
+    `[afwc] leader backup download (${sourceHeader}): ${snapshot.tables.length} table(s), ` +
+      `cpu~${snapshot.cpuMs.toFixed(2)}ms`
   );
-  return c.redirect('/admin', 302);
+
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/sql; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Cache-Control': 'private, no-store, max-age=0',
+      'X-Backup-Source': sourceHeader,
+      'X-Backup-Cpu-Ms': snapshot.cpuMs.toFixed(2),
+    },
+  });
 });
 
 /* ------------------------------------------------------------------ help */

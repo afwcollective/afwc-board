@@ -24,6 +24,7 @@ import { Hono } from 'hono';
 import { flashMiddleware } from './util/flash.js';
 import { loadUser, checkCsrf } from './auth/middleware.js';
 import { notFound, errorPage } from './routes/errors.js';
+import { scheduled } from './scheduled.js';
 import publicRouter from './routes/public.js';
 import authRouter from './routes/auth.js';
 import accountRouter from './routes/account.js';
@@ -135,4 +136,12 @@ app.route('/', readerRouter);
 app.notFound((c) => notFound(c));
 app.onError((err, c) => errorPage(c, err));
 
-export default app;
+/*
+ * The default export is what `wrangler dev`/`wrangler deploy` actually run.
+ * `fetch` is Hono's own handler, unchanged; `scheduled` (worker/src/scheduled.js,
+ * P5) is the Cron Trigger entry point declared in wrangler.toml's [triggers] —
+ * a Worker export Hono itself has no opinion about, so it is added here rather
+ * than anywhere inside the app. See PORT-CLOUDFLARE.md §8 and the header
+ * comment on scheduled.js for what runs on which schedule and why.
+ */
+export default { fetch: app.fetch, scheduled };

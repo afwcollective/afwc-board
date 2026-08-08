@@ -78,11 +78,59 @@ export async function clear(db, ip, username) {
 
 /**
  * Drop every elapsed bucket. The Node version did this on a setInterval, which a
- * Worker has no equivalent of; this is called from the P5 Cron Trigger and is
- * safe to call at any time — an elapsed row is already treated as absent by
- * isBlocked, so the sweep is housekeeping, not correctness.
+ * Worker has no equivalent of; this is called from the P5 Cron Trigger (every 15
+ * minutes, worker/src/scheduled.js) and is safe to call at any time — an elapsed
+ * row is already treated as absent by isBlocked, so the sweep is housekeeping,
+ * not correctness. It also cleans up every row the generic limiter below writes,
+ * since both share one table and one "elapsed = gone" rule.
  */
 export async function sweepExpired(db) {
   const meta = await run(db, 'DELETE FROM rate_limits WHERE reset_at <= ?', Date.now());
   return meta.changes || 0;
+}
+
+/* ---------------- generic per-user request-rate ceiling (P5) ---------------- */
+
+export const MINUTE_MS = 60 * 1000;
+export const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * Anti-runaway ceilings for authenticated write endpoints — POST /drafts, POST
+ * /drafts/:id/pages, POST /chat messages — that have nothing to do with login
+ * failures but need the same "a Worker isolate cannot remember state between
+ * requests" fix isBlocked/recordFailure solved above. Same table
+ * (rate_limits), same upsert shape, different key shape: `scope|userId`
+ * instead of `ip|username`, because these limits are per ACCOUNT, not per
+ * network source — a member on a flaky connection retrying from three tabs
+ * should hit one ceiling, not dodge it by switching wifi.
+ *
+ * These are meant to be generous. The policy is "catch a scripted loop or a
+ * stuck retry storm", not "meter normal use" — see the call sites in
+ * worker/src/routes/drafts.js and worker/src/routes/chat.js for the actual
+ * numbers and the arithmetic that shows a real upload never gets close.
+ *
+ * One round trip: the upsert both bumps the count and, via RETURNING, hands
+ * back the value it landed on, so there is no separate read-then-write for two
+ * simultaneous requests to race. Returns true when the caller may proceed,
+ * false when this call is the one that should get a 429 — i.e. the window
+ * allows exactly `max` calls, and the (max + 1)th is refused. The window
+ * restarts, rather than extends, once it has elapsed, same as recordFailure.
+ */
+export async function checkRate(db, scope, userId, max, windowMs) {
+  const key = `${scope}|${userId}`;
+  const now = Date.now();
+  const row = await one(
+    db,
+    `INSERT INTO rate_limits (key, count, reset_at) VALUES (?, 1, ?)
+     ON CONFLICT(key) DO UPDATE SET
+       count    = CASE WHEN rate_limits.reset_at <= ? THEN 1 ELSE rate_limits.count + 1 END,
+       reset_at = CASE WHEN rate_limits.reset_at <= ? THEN ? ELSE rate_limits.reset_at END
+     RETURNING count`,
+    key,
+    now + windowMs,
+    now,
+    now,
+    now + windowMs
+  );
+  return !row || row.count <= max;
 }

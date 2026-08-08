@@ -8,6 +8,20 @@
 #
 # Paths are relative to THIS file (worker/), which is why the assets directory
 # reaches back up to the shared ../public that the Express app also serves.
+#
+# ------------------------------------------------------- PLACEHOLDERS FOR P6 --
+# Two things below still need the group's real Cloudflare account, marked
+# where they appear:
+#   * [[d1_databases]] database_id — a PLACEHOLDER VALUE, replaced with the
+#     real UUID `wrangler d1 create afwc-board` produces.
+#   * [[r2_buckets]] bucket_name — the STRING is already final and does not
+#     change; what P6 must do is create the bucket that name refers to, with
+#     `wrangler r2 bucket create afwc-board-files`, unlike D1 where `wrangler
+#     d1 migrations apply` both creates and seeds the schema in one step.
+# `workers_dev = true` also wants a P6 look: fine for the free `*.workers.dev`
+# URL this plan targets (PORT-CLOUDFLARE.md "Ownership / deploy model"), but
+# worth a deliberate keep-or-drop decision once a custom domain is on the
+# table rather than carrying it forward by default.
 
 name = "afwc-board"
 main = "dist/index.js"
@@ -18,26 +32,90 @@ compatibility_date = "2026-08-01"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
+# ------------------------------------------------------------- observability --
+# Workers Logs, on by default on the free plan at no cost — `console.log`/
+# `console.error` calls throughout this codebase (the cron jobs in
+# worker/src/scheduled.js are the heaviest users) become queryable in the
+# dashboard and `wrangler tail` without any extra wiring. There is no sampling
+# knob worth setting for an app this size; every invocation is cheap to keep.
+[observability]
+enabled = true
+
+# ------------------------------------------------------------------ triggers --
+# Three Cron Triggers (free on every plan — this is the one piece of "ops"
+# infrastructure that costs nothing at any scale). worker/src/scheduled.js
+# dispatches on the exact string below via `event.cron`, so a change here MUST
+# be mirrored in that file's JOBS table or the new schedule fires into a
+# console.warn and does nothing.
+#   */15 * * * *   sweeps: stale-processing drafts (>10 min untouched),
+#                  expired sessions, expired time-boxed leader roles, elapsed
+#                  rate-limit rows. All four were either boot-time-only or
+#                  interval-only on the Express/Node stack; a Worker has
+#                  neither, so they move to the highest-frequency schedule
+#                  Cloudflare's free plan allows.
+#   0 9 * * *      daily integrity report (soft-deleted-message attachment
+#                  counts, a #general-channel duplicate check) written to a
+#                  settings row — observability, not deletion. See
+#                  worker/src/scheduled.js's dailyIntegrityReport for why
+#                  there is no orphaned-R2 sweep on this schedule.
+#   0 9 1 * *      monthly D1 → R2 snapshot + manifest (the "belt-and-braces"
+#                  copy PORT-CLOUDFLARE.md §8 promises independent of a leader
+#                  remembering to click Download on /admin/backup).
+# All three times are UTC, same as every other timestamp this app stores;
+# 09:00 UTC is 04:00/05:00 America/New_York depending on DST — deliberately
+# outside anyone's session.
+[triggers]
+crons = ["*/15 * * * *", "0 9 * * *", "0 9 1 * *"]
+
+# ------------------------------------------------------------------- limits --
+# No [limits] block: the free plan's per-invocation CPU budget (~10ms) is not
+# a wrangler.toml setting, it is enforced by the platform and is the number
+# every CPU-conscious comment in this codebase (PORT-CLOUDFLARE.md §6, the
+# header of worker/src/services/backup.js, worker/src/routes/drafts.js's
+# MAX_BATCH_BYTES/MAX_PAGES_PER_BATCH) is written against. Two D1-shaped
+# numbers worth knowing instead, because they change how much data this app
+# can hold before something here needs revisiting rather than how fast a
+# single request runs:
+#   * D1 free tier: 5 GB stored, 5M rows read + 100k rows written per day.
+#     A volunteer writing group's board is nowhere near either ceiling; the
+#     monthly snapshot (worker/src/services/backup.js) is itself a few
+#     thousand read rows at most.
+#   * R2 free tier: 10 GB stored, no egress fee ever (R2's headline feature
+#     over S3-alikes) — draft/event/chat originals plus a year of monthly
+#     backups/ snapshots stay small for the same reason the D1 numbers do.
+# Revisit if the group's membership or draft volume grows by an order of
+# magnitude; nothing here needs pre-emptive tuning at today's scale.
+
 # ---------------------------------------------------------------- database --
 [[d1_databases]]
 binding = "DB"
 database_name = "afwc-board"
-database_id = "00000000-0000-0000-0000-000000000000" # placeholder until the account exists
+database_id = "00000000-0000-0000-0000-000000000000" # PLACEHOLDER FOR P6 — real UUID from `wrangler d1 create`
 migrations_dir = "migrations"
 
 # ------------------------------------------------------------------- files --
-# Off-site event attachments (P2) and draft originals/page images (P4). Keys
-# mirror the shape the Express app used on disk, minus the "uploads/" segment
-# that only existed to keep them out of the rest of DATA_DIR — a bucket has no
-# rest. One prefix per kind of thing:
-#     events/<meetingId>/<stored_name>     worker/src/services/events/attachments.js
-#     drafts/<draftId>/…                   P4, same helper shape
-# Keys are always BUILT from a validated id plus a name the app generated; see
-# the pattern notes at the top of that attachments module. The bucket has no
-# public hostname — every byte leaves through an authorized Worker route.
+# Off-site event attachments (P2), draft originals/page images (P4), chat
+# attachments (P3/P4) and the monthly database snapshot (P5). Keys mirror the
+# shape the Express app used on disk, minus the "uploads/" segment that only
+# existed to keep them out of the rest of DATA_DIR — a bucket has no rest. One
+# prefix per kind of thing:
+#     events/<meetingId>/<stored_name>          worker/src/services/events/attachments.js
+#     drafts/<draftId>/…                        worker/src/services/drafts/attachments.js
+#     chat/<channelId>/<messageId>/<stored_name> worker/src/services/chat/attachments.js
+#     backups/<YYYY-MM>/<table>[.N].sql + manifest.json
+#                                                worker/src/services/backup.js (P5) — the
+#                                                monthly Cron Trigger's snapshot; also what
+#                                                a leader's on-demand /admin/backup/download.sql
+#                                                falls back to serving if a live dump would run
+#                                                too close to the CPU budget.
+# Keys are always BUILT from a validated id (or, for backups/, a server-computed
+# YYYY-MM and a table name read from sqlite_master) plus a name the app
+# generated; see the pattern notes at the top of each attachments module. The
+# bucket has no public hostname — every byte leaves through an authorized
+# Worker route, and every one of those routes is requireMember or stricter.
 [[r2_buckets]]
 binding = "FILES"
-bucket_name = "afwc-board-files"
+bucket_name = "afwc-board-files" # name is final — P6 must CREATE it: `wrangler r2 bucket create afwc-board-files`
 
 # ------------------------------------------------------------------ assets --
 # public/ is shared verbatim with the Express app.

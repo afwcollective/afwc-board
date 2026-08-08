@@ -173,6 +173,11 @@ const LOCALS = {
   // admin
   announcements: [ann], announcementCount: 1, backupStale: true,
   lastBackupAt: '2026-07-01T12:00:00.000Z', leaderCount: 2, memberCount: 5,
+  // admin/backup.ejs (P5) — the Worker-only backup page. lastBackupAt and
+  // backupStale above are shared with the dashboard card; these three are
+  // read only here.
+  lastSnapshotAt: '2026-07-01T09:00:00.000Z', lastSnapshotMonth: '2026-07',
+  r2Prefixes: ['drafts/', 'events/', 'chat/', 'backups/'],
   passcodeSet: true, watermarkOn: true, previewHtml: '<p>Preview.</p>', expiringLeaderCount: 1,
   files: [{ id: 1, original_name: 'flyer.png', size: 2048 }],
   limits: {
@@ -328,6 +333,15 @@ const VARIANTS = [
   ['drafts/index', 'nothing this member may manage', { canManage: () => false }],
   ['drafts/new', 'with errors', { errors: ['Give the draft a title so people know what they are opening.'] }],
   ['drafts/new', 'image mode preselected', { values: { title: 'Panels', description: '', mode: 'images' } }],
+  /*
+   * admin/dashboard's Backup card (P5) — same guard shape as drafts/show's
+   * retryHint above. The base LOCALS pass already covers Express's real
+   * condition (backupHref/backupLabel absent, else branch, hardcoded
+   * /admin/backup.zip + "Download backup"); this variant proves the branch
+   * the Worker actually takes (worker/src/routes/admin.js's GET / handler)
+   * renders identically on both engines too.
+   */
+  ['admin/dashboard', 'worker backup card', { backupHref: '/admin/backup', backupLabel: 'Backup options' }],
 ];
 
 const names = Object.keys(workerViews).sort();

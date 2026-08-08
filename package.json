@@ -15,7 +15,8 @@
     "worker:migrate:local": "wrangler d1 migrations apply DB --local --config worker/wrangler.toml",
     "worker:seed:local": "node worker/build/seed.mjs",
     "worker:bench:pbkdf2": "node worker/build/bench-pbkdf2.mjs",
-    "worker:parity:views": "node worker/build/view-parity.mjs"
+    "worker:parity:views": "node worker/build/view-parity.mjs",
+    "worker:verify": "node worker/build/verify.mjs"
   },
   "dependencies": {
     "archiver": "^7.0.1",

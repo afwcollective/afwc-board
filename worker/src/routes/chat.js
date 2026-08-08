@@ -57,6 +57,7 @@ import { getBody, getFormData } from '../util/body.js';
 import { render, renderBare } from '../render.js';
 import { notFound } from './errors.js';
 import * as attachments from '../services/chat/attachments.js';
+import * as ratelimit from '../util/ratelimit.js';
 
 const router = new Hono();
 
@@ -66,6 +67,15 @@ const MAX_MESSAGE_CHARS = 8000;
 const MAX_FILES = attachments.MAX_FILES;
 const MAX_FILE_BYTES = attachments.MAX_FILE_BYTES;
 const MAX_NAME = 60;
+
+/**
+ * P5 anti-runaway ceiling on posting, not a meter on a real conversation — 30
+ * messages a minute is a fast typist chaining short lines during a sprint, not
+ * a bot. Keyed to the poster, not the channel, so it follows a person across
+ * #general, a group and a DM rather than resetting at each door.
+ */
+const MESSAGE_POST_MAX = 30;
+const MESSAGE_POST_WINDOW = ratelimit.MINUTE_MS;
 const MAX_DESC = 140;
 
 /** Newest N shown by default; "show earlier" walks this up in the query string. */
@@ -547,6 +557,10 @@ router.post('/c/:channelId/messages', async (c) => {
   if (!channel._read) return fail(404, 'That conversation is not here.');
   if (!canPostTo(channel)) {
     return fail(403, channel.archived_at ? 'This channel is archived.' : 'Join this channel first.');
+  }
+
+  if (!(await ratelimit.checkRate(db, 'chat_msg', user.id, MESSAGE_POST_MAX, MESSAGE_POST_WINDOW))) {
+    return fail(429, "You're posting a little too fast — wait a few seconds and send that again.");
   }
 
   const { fields, files: fileMap } = await getFormData(c);

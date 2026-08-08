@@ -99,6 +99,7 @@ import { cleanHtml, toPlainText } from '../util/sanitize.js';
 import { getFormData, field } from '../util/body.js';
 import { render } from '../render.js';
 import * as files from '../services/drafts/attachments.js';
+import * as ratelimit from '../util/ratelimit.js';
 
 const router = new Hono();
 
@@ -131,6 +132,22 @@ const ROWS_PER_BATCH = 200;
  * fields; a document submit is bounded by MAX_DOC_BYTES on the part itself.
  */
 const MAX_UPLOAD_BYTES = files.MAX_IMAGES_TOTAL_BYTES + 2 * 1024 * 1024;
+
+/**
+ * Rate ceilings (P5) — anti-runaway, not a meter on normal use. A real upload
+ * of the biggest sequence this app allows (2000 pages, MAX_PAGES) sends
+ * ceil(2000 / MAX_PAGES_PER_BATCH) = 167 page batches; 120/hour undershoots
+ * that on paper, which is fine — nobody uploads a 2000-page docx by hand, and
+ * PORT-CLOUDFLARE.md's own worked example (a 60-page image draft) sends ONE
+ * POST / and no page batches at all (image rows are written inline — see the
+ * "images" branch below), while a 60-page docx sends ceil(60/12) = 5 batches,
+ * nowhere near either ceiling. Both are keyed to the uploader, not the draft,
+ * so ten drafts an hour or twelve batches a minute is a person, not a file.
+ */
+const DRAFT_CREATE_MAX = 10;
+const DRAFT_CREATE_WINDOW = ratelimit.HOUR_MS;
+const PAGE_BATCH_MAX = 120;
+const PAGE_BATCH_WINDOW = ratelimit.HOUR_MS;
 
 /**
  * The failure sentences, copied from src/services/ingest/index.js GENERIC_ERROR
@@ -305,6 +322,13 @@ router.post('/', async (c) => {
     String(c.req.header('x-requested-with') || '').toLowerCase() === 'xmlhttprequest' ||
     String(c.req.header('accept') || '').includes('application/json');
 
+  if (!(await ratelimit.checkRate(db, 'drafts_post', user.id, DRAFT_CREATE_MAX, DRAFT_CREATE_WINDOW))) {
+    const message = "You've shared a lot of drafts in the last hour — take a short break and try again soon.";
+    return wantsJson
+      ? c.json({ ok: false, errors: [message] }, 429, NO_STORE)
+      : render(c, 'drafts/new', newLocals([message]), 429);
+  }
+
   const declared = Number(c.req.header('content-length') || 0);
   if (declared > MAX_UPLOAD_BYTES) {
     const message = `That upload is larger than ${Math.floor(MAX_UPLOAD_BYTES / 1024 / 1024)} MB.`;
@@ -477,6 +501,15 @@ router.post('/:id/pages', async (c) => {
   const got = await protocolDraft(c);
   if (got.error) return got.error;
   const draft = got.draft;
+
+  const user = c.get('currentUser');
+  if (!(await ratelimit.checkRate(db, 'drafts_pages', user.id, PAGE_BATCH_MAX, PAGE_BATCH_WINDOW))) {
+    return jsonFail(
+      c,
+      429,
+      'Pages are arriving faster than we can store them right now. Pause a moment — the rest of this upload will go through once the limit resets.'
+    );
+  }
 
   if (draft.kind !== 'docx' && draft.kind !== 'text') {
     return jsonFail(c, 400, 'That draft does not take page content.');

@@ -106,3 +106,27 @@ export async function noUsersYet(db) {
   const row = await one(db, 'SELECT COUNT(*) AS n FROM users');
   return !row || row.n === 0;
 }
+
+/* ---------------- stale-processing draft sweep (P5) ---------------- */
+
+/**
+ * A draft that never reached POST /:id/finalize — JS off, tab closed, laptop
+ * shut mid-upload (worker/src/routes/drafts.js, "WHAT CHANGED") — stays
+ * 'processing' forever unless something notices. src/services/ingest/index.js
+ * ran this as sweepStaleProcessing() at Node boot; a Worker has no boot, so it
+ * runs from the 15-minute Cron Trigger instead (worker/src/scheduled.js). The
+ * SQL, the ten-minute threshold and the message are copied verbatim — a
+ * member who sees this sentence should see the same one on either stack.
+ */
+export async function sweepStaleProcessingDrafts(db) {
+  const meta = await run(
+    db,
+    `UPDATE drafts
+        SET status = 'failed',
+            error_msg = 'Upload interrupted — please re-upload.',
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+      WHERE status = 'processing'
+        AND COALESCE(updated_at, created_at) < strftime('%Y-%m-%dT%H:%M:%fZ','now','-10 minutes')`
+  );
+  return meta.changes || 0;
+}
