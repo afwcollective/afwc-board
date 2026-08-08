@@ -4,16 +4,25 @@
  * Image-sequence ingest (graphic novels). The upload route has already moved
  * the files into <draft>/pages/0001.ext … in filename sort order; this module
  * only measures them and writes one draft_pages row each.
+ *
+ * `draft.pages_rel` names the directory to read, relative to the draft's own
+ * folder, and defaults to the live `pages`. A FILE SWAP passes `swap/pages`
+ * instead so the replacement is measured where it was staged, without the live
+ * pages being touched — see src/services/ingest/index.js swapDraftFile(). The
+ * file_path this module returns is relative to the draft folder either way; the
+ * swap strips the staging prefix before anything is stored.
  */
 
 const fs = require('node:fs');
 const path = require('node:path');
 const { imageSize } = require('image-size');
 
-const { draftDir } = require('./paths');
+const { resolveInDraft } = require('./paths');
 
 async function build(draft) {
-  const dir = path.join(draftDir(draft.id), 'pages');
+  const pagesRel = String(draft.pages_rel || 'pages');
+  const dir = resolveInDraft(draft.id, pagesRel);
+  if (!dir) throw new Error('draft pages path is unusable');
 
   let names;
   try {
@@ -47,7 +56,7 @@ async function build(draft) {
     pages.push({
       kind: 'image',
       content_html: null,
-      file_path: `pages/${name}`,
+      file_path: `${pagesRel}/${name}`,
       width,
       height,
       heading: null,

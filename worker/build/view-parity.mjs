@@ -68,6 +68,7 @@ const rule = {
 const draft = {
   id: 3, title: 'Chapter One', description: 'draft', kind: 'docx', status: 'ready',
   page_count: 4, user_id: 1, author_name: null, uploader_name: 'Brian',
+  original_filename: 'chapter-one.docx',
   created_at: '2026-08-01T12:00:00.000Z',
 };
 const thread = {
@@ -144,6 +145,33 @@ const chatMessages = [
   },
 ];
 
+/*
+ * Two fixture objects that VARIANTS need to merge into rather than replace, so
+ * they are named here instead of inlined below. `values` is the shared
+ * form-values bag every form view reads — a variant that only wants a different
+ * `topic` must not silently drop `title` — and `limits` carries numbers from
+ * three unrelated pages, one of which (maxImagesTotalMb) legitimately differs
+ * between the two stacks.
+ */
+const LOCALS_VALUES = {
+  username: 'dana', display_name: 'Dana', email: 'd@example.com',
+  // drafts/new.ejs and drafts/edit.ejs read these five off the same object.
+  title: 'Chapter One', description: 'draft', mode: 'document',
+  authorName: '', topic: 'Chapter One',
+};
+
+const LOCALS_LIMITS = {
+  maxDocMb: 25, maxImageMb: 10, maxImages: 60, maxTotalMb: 150,
+  maxImagesTotalMb: 150,
+  // drafts/new.ejs + drafts/edit.ejs — the pen-name field
+  maxAuthorChars: 80,
+  // drafts/edit.ejs — title/description clamped to the upload form's own
+  // limits, and the discussion topic (threads.title) to the draft title's.
+  maxTitleChars: 160, maxDescChars: 2000, maxTopicChars: 160,
+  // chat/index.ejs
+  maxFiles: 3, maxFileMb: 10, maxChars: 8000,
+};
+
 const LOCALS = {
   // app.locals + per-request
   site, dates: nodeDates, title: 'A title', bodyClass: 'page-x',
@@ -172,7 +200,7 @@ const LOCALS = {
   draftKindLabel: { docx: 'Word', pdf: 'PDF', text: 'Text', images: 'Graphic novel' },
   // forms
   errors: ['Something went wrong.', 'And another.'],
-  values: { username: 'dana', display_name: 'Dana', email: 'd@example.com' },
+  values: LOCALS_VALUES,
   next: '/board', setupNeeded: false,
   // floormap
   markerX: 15, markerY: 59.7, interactive: false,
@@ -207,13 +235,15 @@ const LOCALS = {
   passcodeSet: true, groupPasscode: 'remington2026',
   watermarkOn: true, previewHtml: '<p>Preview.</p>', expiringLeaderCount: 1,
   files: [{ id: 1, original_name: 'flyer.png', size: 2048 }],
-  limits: {
-    maxDocMb: 25, maxImageMb: 10, maxImages: 60, maxTotalMb: 150,
-    // drafts/new.ejs + drafts/edit.ejs — the pen-name field
-    maxAuthorChars: 80,
-    // chat/index.ejs
-    maxFiles: 3, maxFileMb: 10, maxChars: 8000,
-  },
+  limits: LOCALS_LIMITS,
+  /*
+   * drafts/edit.ejs. `values` above is the shared form-values object every
+   * other form view reads, so the edit page's names go in beside them rather
+   * than replacing it — see the merge a few lines down. `hasThread` true is the
+   * ordinary case (a draft owns a discussion thread from the moment it is
+   * uploaded); the removed-thread branch is a variant.
+   */
+  hasThread: true, topicPlaceholder: 'Chapter One',
   memberOptions: [person], upcoming: [meeting], past: [meeting],
   rules: [{ ...rule, skips: [{ id: 1, recurring_id: 1, skip_date: '2026-08-22' }], skipDefault: '2026-08-22', hosts: [{ id: 1, local_date: '2026-08-15', user_id: 2, display_name: 'Dana' }], nextDates: ['2026-08-15'], hostDates: [{ local_date: '2026-08-15', starts_at: '2026-08-15T17:00:00.000Z', host: { display_name: 'Dana' } }] }],
   quotes: [
@@ -358,6 +388,16 @@ const VARIANTS = [
   ['drafts/show', 'watermark off', { watermarkOn: false, watermarkDataUri: null }],
   ['drafts/show', 'locked conversation', { thread: { ...thread, is_locked: 1 }, canPost: false }],
   ['drafts/show', 'thread removed by a leader', { thread: null, threadId: null, posts: [] }],
+  /*
+   * THE DISCUSSION TOPIC. threads.title starts as the draft's title on both
+   * stacks, and while they agree the conversation section says nothing extra —
+   * which is what every pass above already proves. Once the uploader has
+   * renamed it from /drafts/:id/edit, the reader shows what the conversation is
+   * actually about, so nobody has to go out to /board to find the heading.
+   */
+  ['drafts/show', 'a discussion topic renamed away from the draft title', {
+    thread: { ...thread, title: 'Pacing after the argument' },
+  }],
 
   /*
    * BYLINE — the draft-author feature. `draft.author_name` (nullable, both
@@ -399,9 +439,46 @@ const VARIANTS = [
     isLeader: false, isArchitect: false, canManage: () => false,
   }],
 
+  /*
+   * drafts/edit — the full per-draft edit surface: title, description, byline,
+   * DISCUSSION TOPIC (threads.title, renamed from here) and REPLACING THE FILE.
+   * The base pass is the plainest state: a Word draft whose topic still matches
+   * its title and which has no pen name. These pin the rest.
+   */
   ['drafts/edit', 'editing an existing pen name', {
     draft: { ...draft, author_name: 'Wordsmith' },
-    values: { authorName: 'Wordsmith' },
+    values: { ...LOCALS_VALUES, authorName: 'Wordsmith' },
+  }],
+  ['drafts/edit', 'a topic renamed away from the draft title', {
+    values: { ...LOCALS_VALUES, topic: 'Pacing after the argument' },
+    topicPlaceholder: 'Pacing after the argument',
+  }],
+  ['drafts/edit', 'the discussion thread was removed by a leader (no topic field)', {
+    hasThread: false, topicPlaceholder: '',
+    values: { ...LOCALS_VALUES, topic: '' },
+  }],
+  ['drafts/edit', 'a rejected save (title emptied)', {
+    errors: ['Give the draft a title so people know what they are opening.'],
+    values: { ...LOCALS_VALUES, title: '' },
+  }],
+  ['drafts/edit', 'a page-sequence draft, replacing with another sequence', {
+    draft: { ...draft, kind: 'images', original_filename: '12 page images' },
+    kindLabel: 'Graphic novel',
+    values: { ...LOCALS_VALUES, mode: 'images' },
+  }],
+  ['drafts/edit', 'a draft uploaded before original_filename was recorded', {
+    draft: { ...draft, original_filename: null },
+  }],
+  /*
+   * The one number that genuinely DIFFERS between the two stacks on this page:
+   * a page sequence may total 150 MB on Express (multer streams each part to a
+   * tmp file) and 40 MB on the Worker (Hono materialises the whole body in a
+   * 128 MB isolate — see worker/src/services/drafts/attachments.js). Both
+   * routes render it from their own limits object, so this proves the template
+   * says whichever is true rather than hardcoding either.
+   */
+  ['drafts/edit', 'worker file limits (40 MB page-sequence total)', {
+    limits: { ...LOCALS_LIMITS, maxImagesTotalMb: 40 },
   }],
 
   ['drafts/new', 'with errors', { errors: ['Give the draft a title so people know what they are opening.'] }],

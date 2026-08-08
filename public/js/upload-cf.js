@@ -10,10 +10,21 @@
  * from `pageJs`, which each router supplies. Nothing in the template knows which
  * app is serving it, and neither script touches the other's page.
  *
+ * TWO FORMS, ONE SCRIPT. #upload-form (views/drafts/new.ejs) creates a draft;
+ * #swap-form (views/drafts/edit.ejs) REPLACES THE FILE under one that already
+ * exists. Steps 2–4 below are literally the same three routes in both cases —
+ * worker/src/routes/drafts.js makes /pages, /finalize and /fail swap-aware on
+ * the server side, writing to the staging tables while a swap is in flight — so
+ * the only thing that differs is step 1's URL, and that is read off the form's
+ * own action attribute. Nothing here knows which of the two it is running, and
+ * a page never has both.
+ *
  * ------------------------------------------------------------ THE PROTOCOL ---
  *
- *   1. POST /drafts                  multipart, the ORIGINAL file(s) + metadata.
- *                                    → 201 { id }  (draft is 'processing')
+ *   1. POST <form action>            multipart, the ORIGINAL file(s) + metadata.
+ *                                    /drafts for a new draft, /drafts/:id/file
+ *                                    to replace one.
+ *                                    → 201/202 { id }  (draft is 'processing')
  *   2. convert, right here, in this tab
  *   3. POST /drafts/:id/pages        JSON batches, ≤150 KB and ≤12 pages each.
  *                                    docx/text only — the server re-sanitizes
@@ -53,7 +64,7 @@
 (function () {
   'use strict';
 
-  var form = document.getElementById('upload-form');
+  var form = document.getElementById('upload-form') || document.getElementById('swap-form');
   if (!form) return;
 
   var CSRF = form.getAttribute('data-csrf') || '';

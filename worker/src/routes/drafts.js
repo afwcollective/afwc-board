@@ -41,6 +41,19 @@
  *                                   picked by a reason code — the client never
  *                                   supplies display text.
  *
+ * THE SAME FOUR STEPS ALSO REPLACE THE FILE UNDER AN EXISTING DRAFT. The edit
+ * page's swap control (POST /:id/file) is step 1 with a different URL and a
+ * draft that already exists; steps 2–4 are literally these routes, and
+ * public/js/upload-cf.js drives both without knowing which it is doing. What
+ * changes is WHERE the half-built replacement goes: while a swap is in flight
+ * there is a draft_swaps row, and pages land in draft_page_staging and bytes
+ * under a `swap/` stored-name prefix, so the draft's live pages and files are
+ * untouched until finalize promotes the whole thing in ONE D1 batch. A swap
+ * that fails leaves the draft exactly as it was, marked 'failed', and
+ * POST /:id/retry puts the status back (see draftPagesIntact in
+ * worker/src/db.js). The reasoning is written out in full in
+ * worker/migrations/0005_draft_swap.sql.
+ *
  * A draft that never reaches step 3 — JS off, tab closed, laptop shut — stays
  * 'processing' forever and is swept exactly as it was before. The Express sweep
  * (src/services/ingest/index.js sweepStaleProcessing, ten minutes since the last
@@ -93,7 +106,7 @@
 
 import { Hono } from 'hono';
 
-import { one, all, run, stmt } from '../db.js';
+import { one, all, run, stmt, draftPagesIntact } from '../db.js';
 import { requireMember, HttpError } from '../auth/middleware.js';
 import { isLeaderUser, isArchitectUser } from '../auth/roles.js';
 import { flash } from '../util/flash.js';
@@ -132,6 +145,15 @@ const ROWS_PER_BATCH = 200;
 /** The pen-name / author-credit field on the upload form and its edit route. */
 const MAX_AUTHOR_CHARS = 80;
 
+/** The upload form's own two limits, so the edit route clamps identically. */
+const MAX_TITLE_CHARS = 160;
+const MAX_DESC_CHARS = 2000;
+
+/** The discussion topic (threads.title). A thread title never had a limit of
+ *  its own — it was always the draft's title, so the draft's limit is the
+ *  honest one. */
+const MAX_TOPIC_CHARS = 160;
+
 /**
  * Strip tags, trim, clamp to MAX_AUTHOR_CHARS, and fold an empty result to
  * `null` — NULL is what COALESCE-in-the-template (`author_name ||
@@ -143,6 +165,18 @@ const MAX_AUTHOR_CHARS = 80;
  */
 function sanitizeAuthorName(raw) {
   const clean = toPlainText(String(raw == null ? '' : raw)).trim().slice(0, MAX_AUTHOR_CHARS);
+  return clean || null;
+}
+
+/**
+ * Same treatment for the discussion topic, and for the same reason — this one
+ * ends up as a heading on /board and in the reader, so it is stripped to plain
+ * text on the way IN rather than trusted and escaped on the way out. Empty
+ * means "no topic of its own"; the caller falls back to the draft's title.
+ * Port of src/routes/drafts.js's sanitizeTopic, verbatim.
+ */
+function sanitizeTopic(raw) {
+  const clean = toPlainText(String(raw == null ? '' : raw)).trim().slice(0, MAX_TOPIC_CHARS);
   return clean || null;
 }
 
@@ -185,6 +219,13 @@ const FAIL_REASONS = {
   interrupted: 'Upload interrupted — please re-upload.',
 };
 
+/**
+ * Tacked onto the diagnosis above when what failed was a REPLACEMENT file
+ * rather than a first upload. It is true because of the staging arrangement:
+ * nothing the draft already had is touched until the new pages exist.
+ */
+const SWAP_RECOVERY = 'The draft’s previous pages are still on file — “Try converting again” puts them back.';
+
 /* ---------------- queries (route-local by convention) ---------------- */
 
 const q = {
@@ -207,28 +248,57 @@ const q = {
       isLeader
     ),
   byId: (db, id) => one(db, 'SELECT * FROM drafts WHERE id = ? AND deleted_at IS NULL', id),
-  pageStats: (db, id) =>
+  /*
+   * The gap check finalize runs, over whichever table this upload is filling.
+   * `table` is one of two literals chosen a few lines from here by a boolean,
+   * never anything off the wire — see pagesTable().
+   */
+  pageStats: (db, table, id) =>
     one(
       db,
       `SELECT COUNT(*) AS n, MIN(page_number) AS lo, MAX(page_number) AS hi
-         FROM draft_pages WHERE draft_id = ?`,
+         FROM ${table} WHERE draft_id = ?`,
       id
     ),
+  /* -- the draft's discussion thread: read for the topic field, renamed by it -- */
+  threadForDraft: (db, id) =>
+    one(
+      db,
+      'SELECT id, title FROM threads WHERE draft_id = ? AND deleted_at IS NULL ORDER BY id LIMIT 1',
+      id
+    ),
+  /* -- a file swap in flight, or null. The discriminator for steps 2–4. -- */
+  swap: (db, id) => one(db, 'SELECT * FROM draft_swaps WHERE draft_id = ?', id),
 };
+
+/**
+ * WHERE THIS UPLOAD'S PAGES GO. A first upload fills draft_pages directly; a
+ * file swap fills draft_page_staging and only becomes the draft's pages at
+ * finalize. Both tables are column-identical (worker/migrations/0005), which is
+ * why one set of statements can serve both with the name substituted — and the
+ * name is one of exactly two constants picked by a boolean, so nothing user-
+ * supplied is ever spliced into SQL text.
+ */
+const pagesTable = (swap) => (swap ? 'draft_page_staging' : 'draft_pages');
 
 const canManage = (user, draft) => !!user && (user.id === draft.user_id || isLeaderUser(user));
 
 /**
- * The byline is the uploader's own call, not a leader override — a leader can
- * still remove a whole draft (moderation), but cannot rewrite whose name is
- * on someone else's work. The one exception is the architect, the board's
- * single god-mode account (worker/src/auth/roles.js) — every other
+ * EDITING A DRAFT IS THE UPLOADER'S OWN CALL, not a leader override. A leader
+ * can still remove a whole draft (moderation) and retry its conversion, but
+ * cannot rewrite the title, the byline, the discussion topic, or — least of all
+ * — the file itself on someone else's work. The one exception is the architect,
+ * the board's single god-mode account (worker/src/auth/roles.js): every other
  * permission check in this file gives leader and architect the same power via
- * canManage() (isLeaderUser is true for both), but this one deliberately does
- * not: a plain leader gets 403 here, same as any other member. Port of
- * src/routes/drafts.js's canEditAuthor, verbatim.
+ * canManage() (isLeaderUser is true for both), and this one deliberately does
+ * not. A plain leader gets 403 on every route below that uses it, same as any
+ * other member.
+ *
+ * This started life as canEditAuthor() guarding one field. It guards the whole
+ * edit surface now and the rule has not moved an inch. Port of
+ * src/routes/drafts.js's canEditDraft, verbatim.
  */
-const canEditAuthor = (user, draft) => !!user && (user.id === draft.user_id || isArchitectUser(user));
+const canEditDraft = (user, draft) => !!user && (user.id === draft.user_id || isArchitectUser(user));
 
 /** What R2 labels a stored original with. Never used to decide anything. */
 const DOC_MIME = {
@@ -262,6 +332,18 @@ const jsonFail = (c, status, error) => c.json({ ok: false, error }, status, NO_S
 /**
  * The guard every protocol step shares: a real draft, managed by this member,
  * still in flight. Returns the draft, or a Response to hand straight back.
+ *
+ * ALSO RETURNS THE SWAP ROW, or null. That single lookup is what tells steps
+ * 2–4 apart from their first-upload selves — which table the pages go in, which
+ * kind they are being converted to, and what has to be cleaned up if it all
+ * goes wrong. `kind` is resolved here too so no step has to remember that a
+ * draft mid-swap is not yet the kind it is becoming.
+ *
+ * The AUTHORITY here stays canManage(), not canEditDraft(). It is deliberately
+ * the looser of the two and has to be, because these routes finish an upload
+ * that POST /drafts already accepted from anyone. POST /:id/file — the only way
+ * to START a swap — is the narrow gate, so a plain leader can never bring one
+ * of these into existence in the first place.
  */
 async function protocolDraft(c) {
   const db = c.env.DB;
@@ -275,7 +357,23 @@ async function protocolDraft(c) {
   if (draft.status !== 'processing') {
     return { error: jsonFail(c, 409, 'That draft is not being converted any more.') };
   }
-  return { draft };
+  const swap = await q.swap(db, draft.id);
+  return { draft, swap, kind: swap ? swap.kind : draft.kind };
+}
+
+/**
+ * Everything a failed or abandoned swap leaves behind, removed: the staged
+ * bytes, the staged pages, and the row that made the protocol treat this draft
+ * as mid-swap. The draft's OWN pages and files are not in any of these three
+ * statements — that is the point of the whole arrangement.
+ */
+async function discardSwap(c, draftId) {
+  const db = c.env.DB;
+  await files.discardStaged(c.env, draftId);
+  await db.batch([
+    stmt(db, 'DELETE FROM draft_page_staging WHERE draft_id = ?', draftId),
+    stmt(db, 'DELETE FROM draft_swaps WHERE draft_id = ?', draftId),
+  ]);
 }
 
 /** c.req.json() with the two failure shapes the protocol promises. */
@@ -358,6 +456,121 @@ async function newLocals(c, errors = [], values = {}) {
 
 router.get('/new', async (c) => render(c, 'drafts/new', await newLocals(c)));
 
+/* ---------------- what makes a submit acceptable ---------------- */
+
+/**
+ * Extension → size → magic bytes, on the bytes in hand, for EVERY file in the
+ * submit, before anything is written — rule 3, and the reason it is a function
+ * is that TWO routes now need it: POST / (a new draft) and POST /:id/file
+ * (replacing the file under one that exists). "Same kind constraints as upload"
+ * has to be one function or it is only a promise.
+ *
+ * Returns `{ errors, kind, ordered }`, where `ordered` is `[{ file, ext, bytes }]`
+ * in the order it will be written and is EMPTY unless every file passed.
+ */
+async function validateSubmit(parts, mode) {
+  const docFiles = parts.document || [];
+  const imageFiles = parts.images || [];
+  const errors = [];
+  let kind = null;
+  let ordered = [];
+
+  if (mode === 'document') {
+    if (docFiles.length !== 1) {
+      errors.push('Choose one document file (.docx, .pdf, .txt or .md).');
+    } else {
+      const file = docFiles[0];
+      const ext = files.extname(file.name);
+      kind = files.DOC_KINDS[ext] || null;
+      if (!kind) {
+        errors.push('That file type is not supported. Upload a .docx, .pdf, .txt or .md file.');
+      } else if (file.size > files.MAX_DOC_BYTES) {
+        errors.push(`Documents are limited to ${files.MAX_DOC_BYTES / 1024 / 1024} MB.`);
+      } else {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const complaint = files.sniff(ext, bytes);
+        if (complaint) errors.push(`“${toPlainText(file.name, 80)}” ${complaint}`);
+        else ordered = [{ file, ext, bytes }];
+      }
+    }
+    return { errors, kind, ordered };
+  }
+
+  kind = 'images';
+  if (!imageFiles.length) {
+    errors.push('Choose the page images for the sequence (JPG, PNG or WebP).');
+    return { errors, kind, ordered };
+  }
+  const limit = files.limitError('images', imageFiles);
+  if (limit) {
+    errors.push(limit);
+    return { errors, kind, ordered };
+  }
+  const sorted = imageFiles.slice().sort(files.byFilename);
+  for (const file of sorted) {
+    const ext = files.extname(file.name);
+    const name = toPlainText(file.name, 80);
+    if (!files.IMAGE_EXTS.has(ext)) {
+      errors.push(`“${name}” is not a JPG, PNG or WebP.`);
+      continue;
+    }
+    if (file.size > files.MAX_IMAGE_BYTES) {
+      errors.push(`“${name}” is larger than ${files.MAX_IMAGE_BYTES / 1024 / 1024} MB.`);
+      continue;
+    }
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const complaint = files.sniff(ext, bytes);
+    if (complaint) errors.push(`“${name}” ${complaint}`);
+    else ordered.push({ file, ext, bytes });
+  }
+  // Rule 3: nothing is written unless EVERY file in the submit passed.
+  if (errors.length) ordered = [];
+  return { errors, kind, ordered };
+}
+
+/**
+ * Writes the validated originals — and, for a page sequence, every page image —
+ * into the file store, either at their live addresses or behind the swap
+ * staging prefix.
+ *
+ * `pages` comes back as plain rows rather than statements because the caller
+ * owns which TABLE they belong in, and their file_path is always the CANONICAL
+ * `pages/0001.png` even when the bytes are staged at `swap/pages/0001.png`.
+ * That is not sloppiness: promotion renames the file down onto the canonical
+ * name, so the row is written once and is simply not true yet.
+ *
+ * Rule 1 is intact throughout — every address is composed by
+ * services/drafts/attachments.js from a validated id and a name this app
+ * generated, and the ORDER is the server's (files.byFilename), never the
+ * client's.
+ */
+async function storeOriginals(env, draftId, kind, ordered, stage) {
+  const written = [];
+  const pages = [];
+  const at = (rel) => (stage ? files.staged(rel) : rel);
+
+  if (kind === 'images') {
+    for (let i = 0; i < ordered.length; i += 1) {
+      const rel = files.pageRel(i + 1, ordered[i].ext);
+      await files.put(env, draftId, at(rel), ordered[i].bytes, files.IMAGE_MIME[ordered[i].ext]);
+      written.push(at(rel));
+      pages.push({ page_number: i + 1, file_path: rel });
+    }
+    return { written, pages, originalRel: null };
+  }
+
+  const rel = files.originalRel(ordered[0].ext);
+  await files.put(env, draftId, at(rel), ordered[0].bytes, mimeForExt(ordered[0].ext));
+  written.push(at(rel));
+  return { written, pages, originalRel: rel };
+}
+
+/** What drafts.original_filename records, for either kind of submit. */
+const originalNameFor = (kind, ordered) =>
+  kind === 'images'
+    ? `${ordered.length} page image${ordered.length === 1 ? '' : 's'}`
+    : String(ordered[0].file.name || '').slice(0, 200);
+
 /* ---------------- step 1: create ---------------- */
 
 router.post('/', async (c) => {
@@ -383,68 +596,15 @@ router.post('/', async (c) => {
   }
 
   const { fields, files: parts } = await getFormData(c);
-  const title = String(field(fields, 'title') || '').trim().slice(0, 160);
-  const description = String(field(fields, 'description') || '').trim().slice(0, 2000);
+  const title = String(field(fields, 'title') || '').trim().slice(0, MAX_TITLE_CHARS);
+  const description = String(field(fields, 'description') || '').trim().slice(0, MAX_DESC_CHARS);
   const authorName = sanitizeAuthorName(field(fields, 'author_name'));
   const mode = field(fields, 'mode') === 'images' ? 'images' : 'document';
-  const docFiles = parts.document || [];
-  const imageFiles = parts.images || [];
 
-  const errors = [];
-  if (!title) errors.push('Give the draft a title so people know what they are opening.');
-
-  let kind = null;
-  /** [{ file, ext, bytes }] in the order they will be written. */
-  let ordered = [];
-
-  if (!errors.length && mode === 'document') {
-    if (docFiles.length !== 1) {
-      errors.push('Choose one document file (.docx, .pdf, .txt or .md).');
-    } else {
-      const file = docFiles[0];
-      const ext = files.extname(file.name);
-      kind = files.DOC_KINDS[ext] || null;
-      if (!kind) {
-        errors.push('That file type is not supported. Upload a .docx, .pdf, .txt or .md file.');
-      } else if (file.size > files.MAX_DOC_BYTES) {
-        errors.push(`Documents are limited to ${files.MAX_DOC_BYTES / 1024 / 1024} MB.`);
-      } else {
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        const complaint = files.sniff(ext, bytes);
-        if (complaint) errors.push(`“${toPlainText(file.name, 80)}” ${complaint}`);
-        else ordered = [{ file, ext, bytes }];
-      }
-    }
-  } else if (!errors.length) {
-    kind = 'images';
-    if (!imageFiles.length) {
-      errors.push('Choose the page images for the sequence (JPG, PNG or WebP).');
-    } else {
-      const limit = files.limitError('images', imageFiles);
-      if (limit) errors.push(limit);
-      else {
-        const sorted = imageFiles.slice().sort(files.byFilename);
-        for (const file of sorted) {
-          const ext = files.extname(file.name);
-          const name = toPlainText(file.name, 80);
-          if (!files.IMAGE_EXTS.has(ext)) {
-            errors.push(`“${name}” is not a JPG, PNG or WebP.`);
-            continue;
-          }
-          if (file.size > files.MAX_IMAGE_BYTES) {
-            errors.push(`“${name}” is larger than ${files.MAX_IMAGE_BYTES / 1024 / 1024} MB.`);
-            continue;
-          }
-          const bytes = new Uint8Array(await file.arrayBuffer());
-          const complaint = files.sniff(ext, bytes);
-          if (complaint) errors.push(`“${name}” ${complaint}`);
-          else ordered.push({ file, ext, bytes });
-        }
-        // Rule 3: nothing is written unless EVERY file in the submit passed.
-        if (errors.length) ordered = [];
-      }
-    }
-  }
+  const submit = await validateSubmit(parts, mode);
+  const { kind, ordered } = submit;
+  const errors = submit.errors;
+  if (!title) errors.unshift('Give the draft a title so people know what they are opening.');
 
   if (errors.length) {
     return wantsJson
@@ -464,10 +624,7 @@ router.post('/', async (c) => {
    * finalize-time write would have been a visible behaviour change for exactly
    * the drafts their uploader most wants to talk about.)
    */
-  const originalName =
-    kind === 'images'
-      ? `${ordered.length} page image${ordered.length === 1 ? '' : 's'}`
-      : String(ordered[0].file.name || '').slice(0, 200);
+  const originalName = originalNameFor(kind, ordered);
   const originalRel = kind === 'images' ? null : files.originalRel(ordered[0].ext);
 
   const created = await db.batch([
@@ -493,37 +650,28 @@ router.post('/', async (c) => {
   ]);
   const draftId = Number(created[0].meta.last_row_id);
 
-  const written = [];
+  let written = [];
   try {
-    if (kind === 'images') {
-      /*
-       * The image page ROWS are written here rather than at finalize, because
-       * the server — not the client — owns which object is page 3. file_path
-       * comes out of attachments.pageRel(), never off the wire; finalize only
-       * ever fills in the width/height it could not measure.
-       */
-      const rows = [];
-      for (let i = 0; i < ordered.length; i += 1) {
-        const rel = files.pageRel(i + 1, ordered[i].ext);
-        await files.put(c.env, draftId, rel, ordered[i].bytes, files.IMAGE_MIME[ordered[i].ext]);
-        written.push(rel);
-        rows.push(
-          stmt(
-            db,
-            `INSERT INTO draft_pages (draft_id, page_number, kind, file_path)
-             VALUES (?, ?, 'image', ?)`,
-            draftId,
-            i + 1,
-            rel
-          )
-        );
-      }
-      for (let i = 0; i < rows.length; i += ROWS_PER_BATCH) {
-        await db.batch(rows.slice(i, i + ROWS_PER_BATCH));
-      }
-    } else {
-      await files.put(c.env, draftId, originalRel, ordered[0].bytes, mimeForExt(ordered[0].ext));
-      written.push(originalRel);
+    /*
+     * The image page ROWS are written here rather than at finalize, because the
+     * server — not the client — owns which object is page 3. file_path comes
+     * out of attachments.pageRel(), never off the wire; finalize only ever
+     * fills in the width/height it could not measure.
+     */
+    const stored = await storeOriginals(c.env, draftId, kind, ordered, false);
+    written = stored.written;
+    const rows = stored.pages.map((p) =>
+      stmt(
+        db,
+        `INSERT INTO draft_pages (draft_id, page_number, kind, file_path)
+         VALUES (?, ?, 'image', ?)`,
+        draftId,
+        p.page_number,
+        p.file_path
+      )
+    );
+    for (let i = 0; i < rows.length; i += ROWS_PER_BATCH) {
+      await db.batch(rows.slice(i, i + ROWS_PER_BATCH));
     }
   } catch (err) {
     console.error('[afwc] draft upload failed:', err);
@@ -548,6 +696,7 @@ router.post('/:id/pages', async (c) => {
   const got = await protocolDraft(c);
   if (got.error) return got.error;
   const draft = got.draft;
+  const table = pagesTable(got.swap);
 
   const user = c.get('currentUser');
   if (!(await ratelimit.checkRate(db, 'drafts_pages', user.id, PAGE_BATCH_MAX, PAGE_BATCH_WINDOW))) {
@@ -558,7 +707,8 @@ router.post('/:id/pages', async (c) => {
     );
   }
 
-  if (draft.kind !== 'docx' && draft.kind !== 'text') {
+  // got.kind, not draft.kind: mid-swap the draft is not yet what it is becoming.
+  if (got.kind !== 'docx' && got.kind !== 'text') {
     return jsonFail(c, 400, 'That draft does not take page content.');
   }
 
@@ -591,7 +741,7 @@ router.post('/:id/pages', async (c) => {
     rows.push(
       stmt(
         db,
-        `INSERT INTO draft_pages (draft_id, page_number, kind, content_html, heading)
+        `INSERT INTO ${table} (draft_id, page_number, kind, content_html, heading)
          VALUES (?, ?, 'html', ?, ?)
          ON CONFLICT(draft_id, page_number) DO UPDATE
             SET kind = 'html', content_html = excluded.content_html, heading = excluded.heading,
@@ -617,7 +767,9 @@ router.post('/:id/finalize', async (c) => {
   const db = c.env.DB;
   const got = await protocolDraft(c);
   if (got.error) return got.error;
-  const draft = got.draft;
+  const { draft, swap, kind } = got;
+  const table = pagesTable(swap);
+  const failSwap = (message) => (swap ? `${message} ${SWAP_RECOVERY}` : message);
 
   const read = await readJsonBody(c);
   if (read.error) return read.error;
@@ -628,28 +780,29 @@ router.post('/:id/finalize', async (c) => {
   }
 
   /* -- html kinds: COUNT THE ROWS WE HOLD, and refuse a gap -- */
-  if (draft.kind === 'docx' || draft.kind === 'text') {
-    const stats = await q.pageStats(db, draft.id);
+  if (kind === 'docx' || kind === 'text') {
+    const stats = await q.pageStats(db, table, draft.id);
     const n = stats ? Number(stats.n) : 0;
     if (n !== pageCount || Number(stats.lo) !== 1 || Number(stats.hi) !== pageCount) {
       const message = `Only ${n} of ${pageCount} pages arrived. Please upload the file again.`;
-      await markFailed(db, draft.id, message);
+      if (swap) await discardSwap(c, draft.id);
+      await markFailed(db, draft.id, failSwap(message));
       return jsonFail(c, 409, message);
     }
-    await db.batch([readyStmt(db, draft.id, pageCount)]);
+    await db.batch(finishStmts(db, draft, swap, pageCount));
     return c.json({ ok: true, id: draft.id, page_count: pageCount, redirect: `/drafts/${draft.id}` }, 200, NO_STORE);
   }
 
   /* -- pdf: the rows ARE the submitted geometry (see the trust note up top) -- */
-  if (draft.kind === 'pdf') {
+  if (kind === 'pdf') {
     const sizes = normalizeSizes(read.body.sizes, pageCount);
     if (!sizes) return jsonFail(c, 400, 'Those page dimensions did not match the page count.');
 
-    await db.batch([stmt(db, 'DELETE FROM draft_pages WHERE draft_id = ?', draft.id)]);
+    await db.batch([stmt(db, `DELETE FROM ${table} WHERE draft_id = ?`, draft.id)]);
     const rows = sizes.map(([w, h], i) =>
       stmt(
         db,
-        `INSERT INTO draft_pages (draft_id, page_number, kind, width, height)
+        `INSERT INTO ${table} (draft_id, page_number, kind, width, height)
          VALUES (?, ?, 'pdf_page', ?, ?)`,
         draft.id,
         i + 1,
@@ -657,20 +810,17 @@ router.post('/:id/finalize', async (c) => {
         h
       )
     );
-    for (let i = 0; i < rows.length; i += ROWS_PER_BATCH) {
-      const chunk = rows.slice(i, i + ROWS_PER_BATCH);
-      if (i + ROWS_PER_BATCH >= rows.length) chunk.push(readyStmt(db, draft.id, pageCount));
-      await db.batch(chunk);
-    }
+    await writeThenFinish(db, rows, draft, swap, pageCount);
     return c.json({ ok: true, id: draft.id, page_count: pageCount, redirect: `/drafts/${draft.id}` }, 200, NO_STORE);
   }
 
   /* -- images: the rows already exist; finalize only measures them -- */
-  const stats = await q.pageStats(db, draft.id);
+  const stats = await q.pageStats(db, table, draft.id);
   const n = stats ? Number(stats.n) : 0;
   if (n !== pageCount) {
     const message = `We stored ${n} page images, not ${pageCount}. Please upload them again.`;
-    await markFailed(db, draft.id, message);
+    if (swap) await discardSwap(c, draft.id);
+    await markFailed(db, draft.id, failSwap(message));
     return jsonFail(c, 409, message);
   }
   const sizes = normalizeSizes(read.body.sizes, pageCount);
@@ -679,18 +829,14 @@ router.post('/:id/finalize', async (c) => {
   const rows = sizes.map(([w, h], i) =>
     stmt(
       db,
-      'UPDATE draft_pages SET width = ?, height = ? WHERE draft_id = ? AND page_number = ?',
+      `UPDATE ${table} SET width = ?, height = ? WHERE draft_id = ? AND page_number = ?`,
       w,
       h,
       draft.id,
       i + 1
     )
   );
-  for (let i = 0; i < rows.length; i += ROWS_PER_BATCH) {
-    const chunk = rows.slice(i, i + ROWS_PER_BATCH);
-    if (i + ROWS_PER_BATCH >= rows.length) chunk.push(readyStmt(db, draft.id, pageCount));
-    await db.batch(chunk);
-  }
+  await writeThenFinish(db, rows, draft, swap, pageCount);
   return c.json({ ok: true, id: draft.id, page_count: pageCount, redirect: `/drafts/${draft.id}` }, 200, NO_STORE);
 });
 
@@ -703,6 +849,81 @@ const readyStmt = (db, id, pageCount) =>
     pageCount,
     id
   );
+
+/**
+ * THE LAST BATCH OF EITHER JOURNEY.
+ *
+ * A first upload finishes in one statement: flip the draft to 'ready'.
+ *
+ * A SWAP FINISHES IN SEVEN, and they are in one D1 batch because a batch is
+ * atomic and two awaits are not — the gap between them is exactly where a
+ * reader would find a draft whose rows and bytes disagree. In order:
+ *
+ *   1–2. the file store: delete every unprefixed file under this draft (the
+ *        OLD original, the OLD page images, chunks and all by cascade), then
+ *        rename the staged ones down onto the names just vacated. NO BYTES
+ *        MOVE and NO ORPHAN IS POSSIBLE — see filestore.promoteStmts().
+ *   3–4. the pages: the live set goes, the staged set is copied into its place
+ *        with its page numbers and canonical file_paths intact.
+ *     5. the staging table is emptied.
+ *     6. the draft row takes on the replacement's kind, page count, filename
+ *        and original path, and goes 'ready'. THE KIND MAY HAVE CHANGED; this
+ *        is where a Word draft becomes a PDF.
+ *     7. the swap row goes, which is what makes the draft an ordinary draft
+ *        again as far as every route in this file is concerned.
+ *
+ * comments is not in this list, deliberately and loudly: page comments keep
+ * their draft_id and their page_number across a swap. See POST /:id/file.
+ */
+function finishStmts(db, draft, swap, pageCount) {
+  if (!swap) return [readyStmt(db, draft.id, pageCount)];
+  const [dropOldFiles, promoteStagedFiles] = files.promoteStagedStmts(db, draft.id);
+  return [
+    dropOldFiles,
+    promoteStagedFiles,
+    stmt(db, 'DELETE FROM draft_pages WHERE draft_id = ?', draft.id),
+    stmt(
+      db,
+      `INSERT INTO draft_pages (draft_id, page_number, kind, content_html, file_path, width, height, heading)
+       SELECT draft_id, page_number, kind, content_html, file_path, width, height, heading
+         FROM draft_page_staging WHERE draft_id = ? ORDER BY page_number`,
+      draft.id
+    ),
+    stmt(db, 'DELETE FROM draft_page_staging WHERE draft_id = ?', draft.id),
+    stmt(
+      db,
+      `UPDATE drafts SET kind = ?, page_count = ?, original_filename = ?, original_path = ?,
+              status = 'ready', error_msg = NULL,
+              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        WHERE id = ?`,
+      swap.kind,
+      pageCount,
+      swap.original_filename,
+      swap.original_path,
+      draft.id
+    ),
+    stmt(db, 'DELETE FROM draft_swaps WHERE draft_id = ?', draft.id),
+  ];
+}
+
+/**
+ * Page rows in ROWS_PER_BATCH batches, then the finish. The finish rides along
+ * with the last batch when the rows fit in one trip (the common case, and the
+ * one where atomicity is free); a 2000-page PDF gets its own final batch, which
+ * is still atomic in itself — the promotion never straddles two.
+ */
+async function writeThenFinish(db, rows, draft, swap, pageCount) {
+  const finish = finishStmts(db, draft, swap, pageCount);
+  for (let i = 0; i < rows.length; i += ROWS_PER_BATCH) {
+    const chunk = rows.slice(i, i + ROWS_PER_BATCH);
+    if (i + ROWS_PER_BATCH >= rows.length && chunk.length + finish.length <= ROWS_PER_BATCH) {
+      await db.batch(chunk.concat(finish));
+      return;
+    }
+    await db.batch(chunk);
+  }
+  await db.batch(finish);
+}
 
 /**
  * `[[w,h], …]` of exactly `count` entries, each bounded or null. A missing or
@@ -732,62 +953,255 @@ function normalizeSizes(raw, count) {
 router.post('/:id/fail', async (c) => {
   const got = await protocolDraft(c);
   if (got.error) return got.error;
-  const draft = got.draft;
+  const { draft, swap, kind } = got;
 
   const read = await readJsonBody(c);
   if (read.error) return read.error;
 
   const message =
     FAIL_REASONS[String(read.body.reason || '')] ||
-    FAIL_REASONS[draft.kind] ||
+    FAIL_REASONS[kind] ||
     'Conversion failed.';
-  await markFailed(c.env.DB, draft.id, message);
+
+  /*
+   * A FAILED SWAP TAKES NOTHING WITH IT. The staged bytes and staged pages go;
+   * the draft's own pages, files, kind and page_count were never touched. What
+   * the member sees is the ordinary failed card — with the sentence below, and
+   * a "Try converting again" button that here means "put the draft back", which
+   * POST /:id/retry can honour precisely because none of it was lost.
+   */
+  if (swap) await discardSwap(c, draft.id);
+  await markFailed(c.env.DB, draft.id, swap ? `${message} ${SWAP_RECOVERY}` : message);
   return c.json({ ok: true, id: draft.id, redirect: `/drafts/${draft.id}` }, 200, NO_STORE);
 });
 
 /* ---------------- edit ----------------
  *
  * UPLOADER (OR THE ARCHITECT) ONLY — deliberately narrower than retry/delete
- * below, which any leader can also do. A leader moderates (removes a draft
- * that should not be here); they do not get to rewrite whose name is
- * credited on someone else's work. canEditAuthor(), not canManage(), guards
- * both routes — a plain leader gets 403 here exactly like any other member.
- * Port of src/routes/drafts.js's GET/POST /:id/edit.
+ * below, which any leader can also do. A leader moderates (removes a draft that
+ * should not be here); they do not get to retitle, re-credit, re-topic or
+ * REPLACE THE FILE UNDER someone else's work. canEditDraft(), not canManage(),
+ * guards all three routes here — a plain leader gets 403 exactly like any other
+ * member, on the GET as well as the POSTs. Port of src/routes/drafts.js's
+ * GET/POST /:id/edit and POST /:id/file.
  *
- * Just the byline for now. This is meant to grow into the fuller per-draft
- * edit surface (title, description, discussion topic, swapping the file)
- * without moving — a later change should be able to add fields to
- * views/drafts/edit.ejs and this handler rather than invent a new route.
+ * Four things live on this page and three of them are ordinary form fields:
+ * title and description (the upload form's own, with its own limits), the
+ * byline, and the DISCUSSION TOPIC — threads.title for the thread this draft
+ * owns, where blank resets it to the draft's title because that is what upload
+ * set it to. The fourth is the file itself, below.
  */
-router.get('/:id/edit', async (c) => {
-  const draft = await q.byId(c.env.DB, Number(c.req.param('id')));
-  if (!draft) throw new HttpError(404, 'That draft is not here.');
-  if (!canEditAuthor(c.get('currentUser'), draft)) {
-    throw new HttpError(403, 'Only the person who uploaded this draft (or the architect) can edit it.');
-  }
-  return render(c, 'drafts/edit', {
+
+/** The one shape both GET /:id/edit and a re-rendered POST hand the template. */
+async function editLocals(c, draft, { errors = [], values = null } = {}) {
+  const thread = await q.threadForDraft(c.env.DB, draft.id);
+  return {
     title: `Edit — ${draft.title}`,
     pageCss: ['/css/drafts.css'],
+    /*
+     * The UPLOAD page's script list, unchanged, for the reason in the header of
+     * public/js/upload-cf.js: #swap-form is #upload-form with a different
+     * action, and steps 2–4 of the protocol are the same three routes. Express
+     * hands this template ['/js/upload.js'] for the same reason.
+     */
+    pageJs: ['/vendor/afwc/paginate.js', '/js/upload-cf.js'],
     draft,
-    errors: [],
-    values: { authorName: draft.author_name || '' },
-    limits: { maxAuthorChars: MAX_AUTHOR_CHARS },
-  });
+    kindLabel: files.KIND_LABEL[draft.kind] || draft.kind,
+    hasThread: !!thread,
+    topicPlaceholder: thread ? thread.title : '',
+    errors,
+    values: values || {
+      title: draft.title,
+      description: draft.description || '',
+      authorName: draft.author_name || '',
+      topic: thread ? thread.title : '',
+      // The swap form opens on the kind the draft already is — the likeliest
+      // replacement for a graphic novel is another page sequence. Changing kind
+      // is one click away either way.
+      mode: draft.kind === 'images' ? 'images' : 'document',
+    },
+    limits: {
+      maxTitleChars: MAX_TITLE_CHARS,
+      maxDescChars: MAX_DESC_CHARS,
+      maxAuthorChars: MAX_AUTHOR_CHARS,
+      maxTopicChars: MAX_TOPIC_CHARS,
+      maxDocMb: files.MAX_DOC_BYTES / 1024 / 1024,
+      maxImageMb: files.MAX_IMAGE_BYTES / 1024 / 1024,
+      maxImagesTotalMb: files.MAX_IMAGES_TOTAL_BYTES / 1024 / 1024,
+      maxImages: files.MAX_IMAGES,
+    },
+  };
+}
+
+/** The draft this request may edit, or the 404/403 it has earned. */
+async function editable(c) {
+  const id = Number(c.req.param('id'));
+  const draft = Number.isInteger(id) && id > 0 ? await q.byId(c.env.DB, id) : null;
+  if (!draft) throw new HttpError(404, 'That draft is not here.');
+  if (!canEditDraft(c.get('currentUser'), draft)) {
+    throw new HttpError(403, 'Only the person who uploaded this draft (or the architect) can edit it.');
+  }
+  return draft;
+}
+
+router.get('/:id/edit', async (c) => {
+  const draft = await editable(c);
+  return render(c, 'drafts/edit', await editLocals(c, draft));
 });
 
 router.post('/:id/edit', async (c) => {
   const db = c.env.DB;
-  const user = c.get('currentUser');
-  const draft = await q.byId(db, Number(c.req.param('id')));
-  if (!draft) throw new HttpError(404, 'That draft is not here.');
-  if (!canEditAuthor(user, draft)) {
-    throw new HttpError(403, 'Only the person who uploaded this draft (or the architect) can edit it.');
-  }
+  const draft = await editable(c);
+
   const body = await getBody(c);
+  const title = String(field(body, 'title') || '').trim().slice(0, MAX_TITLE_CHARS);
+  const description = String(field(body, 'description') || '').trim().slice(0, MAX_DESC_CHARS);
   const authorName = sanitizeAuthorName(field(body, 'author_name'));
-  await run(db, `UPDATE drafts SET author_name = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?`, authorName, draft.id);
-  flash(c, 'ok', authorName ? 'Byline updated.' : 'Byline cleared — showing your display name again.');
+  const topic = sanitizeTopic(field(body, 'topic'));
+
+  if (!title) {
+    const errors = ['Give the draft a title so people know what they are opening.'];
+    const values = {
+      title: String(field(body, 'title') || ''),
+      description,
+      authorName: authorName || '',
+      topic: topic || '',
+      mode: 'document',
+    };
+    return render(c, 'drafts/edit', await editLocals(c, draft, { errors, values }), 400);
+  }
+
+  const thread = await q.threadForDraft(db, draft.id);
+  /*
+   * ONE BATCH, and blank means "the draft's title" — the title being saved by
+   * THIS submit, not the one the draft had a moment ago, so retitling a draft
+   * and clearing its topic together leaves the two in step rather than a
+   * revision apart. (db.transaction on Express; the same two writes here.)
+   */
+  const writes = [
+    stmt(
+      db,
+      `UPDATE drafts SET title = ?, description = ?, author_name = ?,
+              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        WHERE id = ?`,
+      title,
+      description || null,
+      authorName,
+      draft.id
+    ),
+  ];
+  if (thread) writes.push(stmt(db, 'UPDATE threads SET title = ? WHERE id = ?', topic || title, thread.id));
+  await db.batch(writes);
+
+  flash(c, 'ok', 'Draft updated.');
   return c.redirect(`/drafts/${draft.id}`, 302);
+});
+
+/* ---------------- replace the file ----------------
+ *
+ * SWAPPING THE FILE IS A FULL RE-INGEST, and it deliberately keeps nothing of
+ * the old conversion: new original, new pages, new kind, new page_count, back
+ * through the ordinary processing → ready/failed lifecycle. A .docx draft may
+ * come back as a PDF; the reader picks its pane off drafts.kind and never knew
+ * what the draft used to be.
+ *
+ * WHAT SURVIVES, AND WHY IT IS NOT A BUG: the draft id, its URL, its discussion
+ * thread, and ITS PAGE COMMENTS. comments.page_number is not rewritten, because
+ * there is no honest mapping from a page of one file to a page of another — a
+ * comment stays on the page NUMBER it was left on, and may now sit against
+ * different words. views/drafts/edit.ejs says that in those words, right next
+ * to this control, because it is the one consequence a member has to decide
+ * about before they click.
+ *
+ * THIS IS STEP 1 OF THE PROTOCOL AT THE TOP OF THIS FILE, with a different URL.
+ * It stores the replacement STAGED (worker/migrations/0005_draft_swap.sql) and
+ * flips the draft to 'processing'; public/js/upload-cf.js then converts in the
+ * tab and drives /pages, /finalize and /fail exactly as it does for a new
+ * upload. Until finalize, everything the draft already had is still there.
+ */
+router.post('/:id/file', async (c) => {
+  const db = c.env.DB;
+  const user = c.get('currentUser');
+  const draft = await editable(c);
+  const wantsJson =
+    String(c.req.header('x-requested-with') || '').toLowerCase() === 'xmlhttprequest' ||
+    String(c.req.header('accept') || '').includes('application/json');
+
+  const refuse = async (status, messages) =>
+    wantsJson
+      ? c.json({ ok: false, errors: messages }, status, NO_STORE)
+      : render(c, 'drafts/edit', await editLocals(c, draft, { errors: messages }), status);
+
+  // The same ceiling a new upload gets, on its own key: ten drafts an hour and
+  // ten replacements an hour are both "a person", not a runaway script.
+  if (!(await ratelimit.checkRate(db, 'drafts_swap', user.id, DRAFT_CREATE_MAX, DRAFT_CREATE_WINDOW))) {
+    return refuse(429, ["You've replaced a lot of files in the last hour — take a short break and try again soon."]);
+  }
+
+  const declared = Number(c.req.header('content-length') || 0);
+  if (declared > MAX_UPLOAD_BYTES) {
+    return refuse(413, [`That upload is larger than ${Math.floor(MAX_UPLOAD_BYTES / 1024 / 1024)} MB.`]);
+  }
+
+  const { fields, files: parts } = await getFormData(c);
+  const mode = field(fields, 'mode') === 'images' ? 'images' : 'document';
+  const { errors, kind, ordered } = await validateSubmit(parts, mode);
+  if (errors.length) return refuse(400, errors);
+
+  /*
+   * A SECOND ATTEMPT WHILE ONE IS IN FLIGHT overwrites the first rather than
+   * racing it: the staged bytes and staged pages of any earlier attempt go
+   * before the new ones land, so the staging namespace only ever describes one
+   * replacement. (The draft's own files are, as everywhere in this route,
+   * not involved.)
+   */
+  await discardSwap(c, draft.id);
+
+  let stored;
+  try {
+    stored = await storeOriginals(c.env, draft.id, kind, ordered, true);
+  } catch (err) {
+    console.error('[afwc] draft file swap could not be staged:', err);
+    await files.discardStaged(c.env, draft.id);
+    return refuse(500, ['We could not store that replacement file. Please try again.']);
+  }
+
+  const writes = [
+    stmt(
+      db,
+      `INSERT INTO draft_swaps (draft_id, kind, original_filename, original_path)
+       VALUES (?, ?, ?, ?)`,
+      draft.id,
+      kind,
+      originalNameFor(kind, ordered),
+      stored.originalRel
+    ),
+    ...stored.pages.map((p) =>
+      stmt(
+        db,
+        `INSERT INTO draft_page_staging (draft_id, page_number, kind, file_path)
+         VALUES (?, ?, 'image', ?)`,
+        draft.id,
+        p.page_number,
+        p.file_path
+      )
+    ),
+    stmt(
+      db,
+      `UPDATE drafts SET status = 'processing', error_msg = NULL,
+              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        WHERE id = ?`,
+      draft.id
+    ),
+  ];
+  for (let i = 0; i < writes.length; i += ROWS_PER_BATCH) {
+    await db.batch(writes.slice(i, i + ROWS_PER_BATCH));
+  }
+
+  flash(c, 'ok', 'Replacing the file — converting it for the reader now.');
+  const location = `/drafts/${draft.id}`;
+  if (wantsJson) return c.json({ ok: true, id: draft.id, redirect: location }, 202, NO_STORE);
+  return c.redirect(location, 302);
 });
 
 /* ---------------- retry & delete ---------------- */
@@ -796,13 +1210,29 @@ router.post('/:id/edit', async (c) => {
  * See the file header: retry is now re-upload. The button in views/drafts/*.ejs
  * is shared with Express, so it keeps working and keeps its meaning ("get this
  * draft converted") — it just cannot do it from the original any more.
+ *
+ * WITH ONE EXCEPTION, AND IT IS THE FILE SWAP'S. A swap that failed leaves the
+ * draft marked 'failed' on top of a page set that is still whole, because the
+ * replacement was staged and never got near it. For that draft — and only that
+ * draft — retry can mean exactly what it means on Express: put it back. The
+ * reader's failed card already says so (worker/src/routes/reader.js worded its
+ * retryHint from the same question), so the button a member presses does what
+ * the sentence above it promised.
  */
 router.post('/:id/retry', async (c) => {
-  const draft = await q.byId(c.env.DB, Number(c.req.param('id')));
+  const db = c.env.DB;
+  const draft = await q.byId(db, Number(c.req.param('id')));
   if (!draft) throw new HttpError(404, 'That draft is not here.');
   if (!canManage(c.get('currentUser'), draft)) {
     throw new HttpError(403, 'Only the person who uploaded this (or a leader) can retry it.');
   }
+
+  if (draft.status === 'failed' && (await draftPagesIntact(db, draft))) {
+    await db.batch([readyStmt(db, draft.id, draft.page_count)]);
+    flash(c, 'ok', 'Put back the way it was — the replacement file was the only thing that failed.');
+    return c.redirect(`/drafts/${draft.id}`, 302);
+  }
+
   flash(
     c,
     'info',

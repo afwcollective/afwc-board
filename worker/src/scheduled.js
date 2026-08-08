@@ -48,7 +48,14 @@
  * not letting a sweep failure become an unhandled rejection at boot.
  */
 
-import { one, getSetting, setSetting, sweepExpiredRoles, sweepStaleProcessingDrafts } from './db.js';
+import {
+  one,
+  getSetting,
+  setSetting,
+  sweepExpiredRoles,
+  sweepStaleProcessingDrafts,
+  sweepAbandonedSwaps,
+} from './db.js';
 import * as sessions from './auth/sessions.js';
 import * as ratelimit from './util/ratelimit.js';
 import * as filestore from './services/filestore.js';
@@ -58,6 +65,13 @@ import * as retention from './services/retention.js';
 
 async function fifteenMinuteSweep(env) {
   const db = env.DB;
+  /*
+   * The swap sweep runs AFTER the stale-processing one, in its own await, and
+   * the order is the whole reason it needs no clock: the first sweep is what
+   * moves an abandoned file swap's draft out of 'processing', and the second
+   * collects every swap whose draft is no longer converting. Same tick, so a
+   * closed tab costs at most one quarter hour of staged bytes.
+   */
   const results = await Promise.allSettled([
     sweepStaleProcessingDrafts(db),
     sessions.sweepExpired(db),
@@ -71,8 +85,14 @@ async function fifteenMinuteSweep(env) {
       console.error(`[afwc] cron 15m: ${label} sweep failed:`, r.reason);
     }
   });
+  let swaps = null;
+  try {
+    swaps = await sweepAbandonedSwaps(db);
+  } catch (err) {
+    console.error('[afwc] cron 15m: abandoned draft-swap sweep failed:', err);
+  }
   console.log(
-    `[afwc] cron 15m: drafts=${drafts ?? 'ERR'} sessions=${sess ?? 'ERR'} roles=${roles ?? 'ERR'} rate_limits=${limits ?? 'ERR'}`
+    `[afwc] cron 15m: drafts=${drafts ?? 'ERR'} swaps=${swaps ?? 'ERR'} sessions=${sess ?? 'ERR'} roles=${roles ?? 'ERR'} rate_limits=${limits ?? 'ERR'}`
   );
 }
 

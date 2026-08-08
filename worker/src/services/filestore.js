@@ -476,6 +476,81 @@ export async function remove(db, scope, refId, storedName) {
   }
 }
 
+/* -------------------------------------------------------------- promotion -- */
+
+/**
+ * THE FILE SWAP'S TWO STATEMENTS, for the caller to put in its own batch.
+ *
+ * A draft whose file is being replaced holds both sets of bytes at once: the
+ * live ones under `original.docx` / `pages/0001.png`, and the replacement under
+ * the same names behind a prefix (`swap/…` — see
+ * worker/src/services/drafts/attachments.js, which owns that shape). Promoting
+ * one over the other is not a copy. It is:
+ *
+ *   1. delete every file under this ref that is NOT prefixed — the old bytes,
+ *      chunks and all, by cascade;
+ *   2. rename every file that IS prefixed to the name underneath it.
+ *
+ * Returned as statements rather than run here because they belong in the SAME
+ * D1 batch as the row changes that make them true (the new draft_pages, the new
+ * drafts.kind). A batch is atomic; two awaited calls are not, and the gap
+ * between them is exactly where a reader would find a draft describing bytes
+ * that no longer exist. In that order the UNIQUE index is never contended:
+ * `swap/original.pdf` becomes `original.pdf` only after the previous
+ * `original.pdf` is gone.
+ *
+ * `LIKE` needs no ESCAPE clause here because the prefix is a constant this
+ * module's callers own, not user input — but it is still passed as a bound
+ * parameter, so nothing about it is composed into SQL text.
+ */
+export function promoteStmts(db, scope, refId, prefix) {
+  const key = fileKey(scope, refId, `${prefix}x`);
+  if (!key) throw new Error(`refusing to promote an unsafe file address: ${scope}/${refId}/${prefix}`);
+  const pattern = `${prefix}%`;
+  return [
+    stmt(
+      db,
+      'DELETE FROM stored_files WHERE scope = ? AND ref_id = ? AND stored_name NOT LIKE ?',
+      key.scope,
+      key.refId,
+      pattern
+    ),
+    stmt(
+      db,
+      `UPDATE stored_files SET stored_name = substr(stored_name, ?)
+        WHERE scope = ? AND ref_id = ? AND stored_name LIKE ?`,
+      prefix.length + 1,
+      key.scope,
+      key.refId,
+      pattern
+    ),
+  ];
+}
+
+/**
+ * Throws away a staged, unpromoted set — the abandon half of promoteStmts().
+ * Best-effort, like every other delete in this module: a swap that failed has
+ * already given the member bad news and a cleanup that raises would only make
+ * it worse.
+ */
+export async function removePrefixed(db, scope, refId, prefix) {
+  const key = fileKey(scope, refId, `${prefix}x`);
+  if (!key) return 0;
+  try {
+    const res = await run(
+      db,
+      'DELETE FROM stored_files WHERE scope = ? AND ref_id = ? AND stored_name LIKE ?',
+      key.scope,
+      key.refId,
+      `${prefix}%`
+    );
+    return res.changes || 0;
+  } catch (err) {
+    console.error('[afwc] filestore staged delete failed:', err);
+    return 0;
+  }
+}
+
 /** Removes every file belonging to one thing. Same best-effort contract. */
 export async function removeAllFor(db, scope, refId) {
   const key = fileKey(scope, refId, 'x');

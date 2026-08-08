@@ -8,11 +8,18 @@
  * (2) is not decoration: src/auth/middleware.js checkCsrf runs before any body
  * parser sees a multipart request, so it can only read the token from that
  * header. A plain multipart form post would be rejected as a stale token.
+ *
+ * TWO FORMS, ONE SCRIPT. #upload-form (views/drafts/new.ejs) creates a draft;
+ * #swap-form (views/drafts/edit.ejs) replaces the file under one that already
+ * exists. They are the same form — same field names, same mode switch, same
+ * multipart-plus-CSRF-header arrangement, same JSON reply carrying a redirect —
+ * so this drives whichever one is on the page and takes the endpoint off the
+ * form's own action rather than knowing either URL. A page never has both.
  */
 (function () {
   'use strict';
 
-  var form = document.getElementById('upload-form');
+  var form = document.getElementById('upload-form') || document.getElementById('swap-form');
   if (!form) return;
 
   var modeInputs = Array.prototype.slice.call(form.querySelectorAll('input[name="mode"]'));

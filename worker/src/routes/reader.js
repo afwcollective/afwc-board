@@ -52,7 +52,7 @@
 
 import { Hono } from 'hono';
 
-import { one, all, run, stmt, getSetting } from '../db.js';
+import { one, all, run, stmt, getSetting, draftPagesIntact } from '../db.js';
 import { requireMember, HttpError } from '../auth/middleware.js';
 import { isLeaderUser } from '../auth/roles.js';
 import { flash } from '../util/flash.js';
@@ -369,13 +369,14 @@ router.get('/drafts/:id', async (c) => {
    * section disappears — a removed thread stays removed rather than springing
    * back to life the first time somebody types into the reader.
    */
-  const [sections, pageSizes, counts, thread, firstPage, watermarkSetting] = await Promise.all([
+  const [sections, pageSizes, counts, thread, firstPage, watermarkSetting, restorable] = await Promise.all([
     ready && mode === 'html' ? q.sections(db, draft.id) : [],
     ready && mode !== 'html' ? q.pageSizes(db, draft.id) : [],
     countsFor(db, draft.id),
     q.thread(db, draft.id),
     ready && mode === 'html' ? q.page(db, draft.id, 1) : null,
     getSetting(db, 'watermark_on', '1'),
+    draft.status === 'failed' ? draftPagesIntact(db, draft) : false,
   ]);
   const posts = thread ? await q.threadPosts(db, thread.id) : [];
 
@@ -416,8 +417,9 @@ router.get('/drafts/:id', async (c) => {
      * template's comment for how the guard keeps Express byte-identical, and
      * worker/src/routes/drafts.js for the route the button actually reaches.
      */
-    retryHint:
-      'Conversion happens in your own browser on this site, so trying again means picking the file and uploading it once more. Nothing else about the draft was lost — its conversation is still here.',
+    retryHint: restorable
+      ? 'This draft’s own pages are still here — only the replacement file failed to convert. “Try converting again” puts the draft back exactly as it was.'
+      : 'Conversion happens in your own browser on this site, so trying again means picking the file and uploading it once more. Nothing else about the draft was lost — its conversation is still here.',
     watermarkOn,
     watermarkDataUri,
   });

@@ -17,7 +17,11 @@
  * when the message is safe to show a member verbatim.
  */
 
+const fs = require('node:fs');
+const path = require('node:path');
+
 const { db } = require('../../db');
+const { draftDir, swapDir, unstage } = require('./paths');
 
 const BUILDERS = {
   text: () => require('./text'),
@@ -61,6 +65,15 @@ const stmt = {
               updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
         WHERE status = 'processing'
           AND COALESCE(updated_at, created_at) < strftime('%Y-%m-%dT%H:%M:%fZ','now','-10 minutes')`
+    ),
+  /* -- the file swap's one write (see swapDraftFile below) -- */
+  swapReady: () =>
+    db.prepare(
+      `UPDATE drafts
+          SET kind = ?, page_count = ?, original_filename = ?, original_path = ?,
+              status = 'ready', error_msg = NULL,
+              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        WHERE id = ?`
     ),
 };
 
@@ -126,4 +139,153 @@ function sweepStaleProcessing() {
   }
 }
 
-module.exports = { ingestDraft, sweepStaleProcessing };
+/* ============================================================ FILE SWAP ==== */
+
+/**
+ * What a member reads when a REPLACEMENT file fails to convert. The per-kind
+ * diagnosis is the same one an ordinary upload gets; the second sentence is the
+ * part that only makes sense here, and it is true because of the ordering
+ * below — nothing the draft already had is touched until the new pages exist.
+ */
+const SWAP_RECOVERY = 'The draft’s previous pages are still on file — “Try converting again” puts them back.';
+
+/** Every live name a draft owns: its original, and its page-image directory. */
+function liveNames(dir) {
+  let names;
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+  return names.filter((n) => n === 'pages' || /^original\./.test(n));
+}
+
+function moveAll(names, from, to) {
+  fs.mkdirSync(to, { recursive: true });
+  for (const name of names) fs.renameSync(path.join(from, name), path.join(to, name));
+}
+
+const rmrf = (target) => fs.rmSync(target, { recursive: true, force: true });
+
+/**
+ * SWAP THE FILE UNDER AN EXISTING DRAFT — the write half of /drafts/:id/edit's
+ * "replace the file" control (src/routes/drafts.js POST /:id/file). The route
+ * has already validated the submit exactly as an upload is validated and staged
+ * the bytes under <draft>/swap/; this builds pages from THERE and only then
+ * lets them near the draft.
+ *
+ * THE SEMANTICS, WRITTEN OUT BECAUSE THEY ARE THE WHOLE POINT:
+ *
+ *   · THE OLD PAGES SURVIVE UNTIL THE NEW ONES EXIST. The draft is flipped to
+ *     'processing' by the route (so the reader shows its ordinary converting
+ *     state), but draft_pages and the live files are untouched while the
+ *     builder runs. A conversion that throws leaves the draft exactly as it
+ *     was apart from the failed status and the message above — and because
+ *     drafts.original_path still names the OLD original, the ordinary
+ *     "Try converting again" button rebuilds the draft it had before.
+ *   · THE SWAP MAY CHANGE THE KIND. A .docx draft can become a PDF: kind,
+ *     page_count, original_filename and original_path are all rewritten from
+ *     the new file, and the reader picks its pane from drafts.kind as it always
+ *     has. Nothing about the draft's identity moves — same id, same URL, same
+ *     discussion thread.
+ *   · PAGE COMMENTS ARE NOT TOUCHED. comments.draft_id and comments.page_number
+ *     are left exactly as they are, deliberately: a comment stays on the page
+ *     NUMBER it was written on. If the new file paginates differently, page 4's
+ *     notes are still on page 4 and may now sit against different prose. The
+ *     edit page says so in those words next to the control.
+ *   · NO ORPHANS. The previous original and page images are deleted from the
+ *     filestore once (and only once) the new rows are committed.
+ *
+ * Never rejects; records 'failed' and returns, exactly like ingestDraft().
+ */
+async function swapDraftFile(draftId, staged) {
+  const draft = stmt.draft().get(Number(draftId));
+  if (!draft) return;
+
+  const dir = draftDir(draft.id);
+  const staging = swapDir(draft.id);
+  const kind = staged.kind;
+
+  try {
+    const load = BUILDERS[kind];
+    if (!load) throw new Error(`unknown draft kind: ${kind}`);
+
+    /*
+     * A SYNTHETIC DRAFT, pointed at the staging tree. Every builder takes the
+     * same four fields off the row and nothing else, so handing it a shape that
+     * describes the replacement is all it takes to convert the new file without
+     * a second code path — and without the builders learning what a swap is.
+     */
+    const pages = await load().build({
+      id: draft.id,
+      kind,
+      original_path: staged.originalPath,
+      original_filename: staged.originalFilename,
+      pages_rel: 'swap/pages',
+    });
+    if (!Array.isArray(pages) || !pages.length) {
+      const e = new Error('That file turned out to have no pages in it.');
+      e.friendly = true;
+      throw e;
+    }
+
+    /*
+     * PROMOTION. The live names go into an attic first, the staged ones take
+     * their place, and only then does the database change. If the commit throws
+     * — which on a local SQLite file essentially means the disk is gone — the
+     * attic goes straight back, so the draft is never left describing bytes
+     * that are not there. The attic is deleted last, which is where "no orphan
+     * files" actually happens.
+     */
+    const attic = path.join(dir, `.replaced-${Date.now().toString(36)}`);
+    const old = liveNames(dir);
+    moveAll(old, dir, attic);
+    try {
+      moveAll(liveNames(staging), staging, dir);
+      rmrf(staging);
+
+      const canonicalOriginal = staged.originalPath ? unstage(staged.originalPath) : null;
+      const commit = db.transaction(() => {
+        stmt.clearPages().run(draft.id);
+        const insert = stmt.insertPage();
+        pages.forEach((page, i) => {
+          insert.run(
+            draft.id,
+            i + 1,
+            page.kind,
+            page.content_html == null ? null : String(page.content_html),
+            page.file_path == null ? null : unstage(page.file_path),
+            page.width == null ? null : Number(page.width),
+            page.height == null ? null : Number(page.height),
+            page.heading == null ? null : String(page.heading)
+          );
+        });
+        stmt
+          .swapReady()
+          .run(kind, pages.length, staged.originalFilename, canonicalOriginal, draft.id);
+      });
+      commit();
+    } catch (err) {
+      // Put the draft's own bytes back before anything else notices they left.
+      for (const name of liveNames(dir)) rmrf(path.join(dir, name));
+      moveAll(liveNames(attic), attic, dir);
+      throw err;
+    }
+    rmrf(attic);
+
+    console.log(
+      `[afwc] draft ${draft.id} file swapped (${draft.kind} → ${kind}) — ${pages.length} pages`
+    );
+  } catch (err) {
+    const diagnosis = err && err.friendly ? err.message : GENERIC_ERROR[kind] || 'Conversion failed.';
+    console.error(`[afwc] draft ${draft.id} file swap failed:`, err);
+    rmrf(staging);
+    try {
+      stmt.failed().run(`${diagnosis} ${SWAP_RECOVERY}`, draft.id);
+    } catch (dbErr) {
+      console.error('[afwc] could not record swap failure:', dbErr);
+    }
+  }
+}
+
+module.exports = { ingestDraft, sweepStaleProcessing, swapDraftFile };

@@ -78,13 +78,15 @@
             <% if (canManage(d)) { %>
               <div class="draft-actions">
                 <%
-                  /* Byline editing is the UPLOADER's call (or the architect's,
-                     the board's one god-mode account) — not a plain leader's,
-                     even though a leader can manage (retry/remove) this draft
-                     in every other way. See views/drafts/edit.ejs. */
+                  /* Editing is the UPLOADER's call (or the architect's, the
+                     board's one god-mode account) — not a plain leader's, even
+                     though a leader can manage (retry/remove) this draft in
+                     every other way. That covers the title, the byline, the
+                     discussion topic and replacing the file itself. See
+                     views/drafts/edit.ejs. */
                 %>
                 <% if (currentUser && (currentUser.id === d.user_id || isArchitect)) { %>
-                  <a class="btn btn--sm" href="/drafts/<%= d.id %>/edit">Edit byline</a>
+                  <a class="btn btn--sm" href="/drafts/<%= d.id %>/edit">Edit</a>
                 <% } %>
                 <% if (d.status === 'failed') { %>
                   <form method="post" action="/drafts/<%= d.id %>/retry" class="inline-form">

@@ -118,6 +118,53 @@ export async function noUsersYet(db) {
  * SQL, the ten-minute threshold and the message are copied verbatim — a
  * member who sees this sentence should see the same one on either stack.
  */
+/**
+ * IS THIS FAILED DRAFT STILL SITTING ON A COMPLETE SET OF PAGES?
+ *
+ * There is exactly one way for that to happen, and it is the point of the file
+ * swap: replacing the file under a draft stages the new pages elsewhere
+ * (worker/migrations/0005_draft_swap.sql) and never touches the live ones until
+ * the replacement is proved to convert. So a swap that fails leaves the draft
+ * marked 'failed' — the ordinary failed state, which is what a member expects
+ * to see — on top of a draft_pages set that is still whole.
+ *
+ * On the Express stack "try converting again" would rebuild that draft from the
+ * original still on disk. This stack has no original to rebuild from (§6: the
+ * browser converts, and originals are never handed back), so retry has to mean
+ * something else here: put the status back. This is the question that decides
+ * whether it can. Both callers ask it the same way — the reader, to word the
+ * failed card honestly, and POST /drafts/:id/retry, to act on it.
+ */
+export async function draftPagesIntact(db, draft) {
+  const expected = Number(draft && draft.page_count) || 0;
+  if (expected <= 0) return false;
+  const row = await one(db, 'SELECT COUNT(*) AS n FROM draft_pages WHERE draft_id = ?', draft.id);
+  return !!row && Number(row.n) === expected;
+}
+
+/**
+ * A swap whose draft has stopped converting — finished, failed or swept — is
+ * over, whatever became of it, so its staging rows and its staged bytes are
+ * garbage. A LIVE swap always has its draft in 'processing', which is exactly
+ * the condition the stale-processing sweep above clears after ten idle minutes,
+ * so an abandoned swap is collected on the next quarter-hour tick without this
+ * needing a clock of its own.
+ */
+export async function sweepAbandonedSwaps(db) {
+  const dead = 'SELECT draft_id FROM draft_swaps WHERE draft_id IN (SELECT id FROM drafts WHERE status <> ?)';
+  const results = await db.batch([
+    stmt(
+      db,
+      `DELETE FROM stored_files
+        WHERE scope = 'drafts' AND stored_name LIKE 'swap/%' AND ref_id IN (${dead})`,
+      'processing'
+    ),
+    stmt(db, `DELETE FROM draft_page_staging WHERE draft_id IN (${dead})`, 'processing'),
+    stmt(db, `DELETE FROM draft_swaps WHERE draft_id IN (SELECT id FROM drafts WHERE status <> ?)`, 'processing'),
+  ]);
+  return Number(results[2] && results[2].meta ? results[2].meta.changes : 0) || 0;
+}
+
 export async function sweepStaleProcessingDrafts(db) {
   const meta = await run(
     db,

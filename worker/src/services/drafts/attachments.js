@@ -116,12 +116,27 @@ export const KIND_LABEL = {
 };
 
 /**
- * Only ever what this module composes: `original.<ext>` or `pages/<4 digits>.<ext>`.
- * This is the port of resolveInDraft()'s "does this escape the directory" check
- * — a question that becomes "could we have written this name" once the store is
- * a bucket rather than a filesystem.
+ * THE STAGING PREFIX — the one namespace a draft's live files are never in.
+ *
+ * Replacing the file under an existing draft (/drafts/:id/edit) writes the
+ * replacement here first, so both sets of bytes exist side by side until the
+ * new pages are proved to convert. `swap/original.pdf` sits beside
+ * `original.docx` and neither can be mistaken for the other. At finalize,
+ * filestore.promoteStmts() deletes the unprefixed set and renames the prefixed
+ * one down onto it — no bytes move, and no row is ever stored naming a
+ * `swap/…` path (draft_pages.file_path always records the CANONICAL name, so
+ * the rename is what makes it true rather than something that has to be
+ * rewritten afterwards).
  */
-const SAFE_REL = /^(original\.[a-z0-9]{1,8}|pages\/[0-9]{4}\.[a-z0-9]{1,8})$/;
+export const SWAP_PREFIX = 'swap/';
+
+/**
+ * Only ever what this module composes: `original.<ext>` or `pages/<4 digits>.<ext>`,
+ * optionally behind the staging prefix. This is the port of resolveInDraft()'s
+ * "does this escape the directory" check — a question that becomes "could we
+ * have written this name" once the store is a bucket rather than a filesystem.
+ */
+const SAFE_REL = /^(swap\/)?(original\.[a-z0-9]{1,8}|pages\/[0-9]{4}\.[a-z0-9]{1,8})$/;
 
 /* ---------------- magic-byte sniffing ---------------- */
 
@@ -249,6 +264,23 @@ export async function unlink(env, draftId, relPaths) {
     await filestore.remove(env.DB, SCOPE, address.refId, address.storedName);
   }
 }
+
+/* ---------------- the file swap's staging namespace ---------------- */
+
+/** `pages/0001.png` → `swap/pages/0001.png`. The only place that prefix is added. */
+export const staged = (relPath) => `${SWAP_PREFIX}${relPath}`;
+
+/**
+ * The two statements that make a staged set the draft's real one, for the
+ * caller's finalize batch. See filestore.promoteStmts() for why they are
+ * statements and not a function that runs them.
+ */
+export const promoteStagedStmts = (db, draftId) =>
+  filestore.promoteStmts(db, SCOPE, draftId, SWAP_PREFIX);
+
+/** Throws away an abandoned or failed staging set. Best-effort. */
+export const discardStaged = (env, draftId) =>
+  filestore.removePrefixed(env.DB, SCOPE, draftId, SWAP_PREFIX);
 
 /* ---------------- submit-level validation ---------------- */
 

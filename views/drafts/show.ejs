@@ -23,8 +23,12 @@
         <p class="reader-by mono small">
           <span class="badge badge--kind"><%= kindLabel %></span>
           <span<% if (showByAttribution) { %> title="Shared by <%= draft.uploader_name %>"<% } %>><%= draftByline %></span>
+          <%# The full edit surface — title, description, byline, discussion topic and
+              replacing the file — and deliberately the SAME gate the byline link had:
+              the uploader or the architect, never a plain leader. See canEditDraft()
+              in src/routes/drafts.js and worker/src/routes/drafts.js. %>
           <% if (currentUser && (currentUser.id === draft.user_id || isArchitect)) { %>
-            <span class="dot">·</span><a class="reader-edit-link" href="/drafts/<%= draft.id %>/edit">Edit byline</a>
+            <span class="dot">·</span><a class="reader-edit-link" href="/drafts/<%= draft.id %>/edit">Edit</a>
           <% } %>
           <% if (draft.status === 'ready') { %>
             <span class="dot">·</span><%= draft.page_count %> page<%= draft.page_count === 1 ? '' : 's' %>
@@ -204,6 +208,17 @@
   <% if (thread) { %>
     <section class="reader-wrap draft-conversation" id="conversation">
       <p class="section-label">The conversation</p>
+
+      <%# THE TOPIC. threads.title starts life as the draft's title (both stacks set
+          it that way at upload), and while the two agree there is nothing here worth
+          a line of its own — the draft's name is already in the bar overhead. Once
+          the uploader has renamed it from /drafts/:id/edit the thread is ABOUT
+          something, and this is where a reader finds out what, without having to go
+          out to /board to read the heading. No new local: `thread` and `draft` are
+          both already on this page. %>
+      <% if (thread.title !== draft.title) { %>
+        <h2 class="dc-topic"><%= thread.title %></h2>
+      <% } %>
 
       <p class="dc-intro measure">
         Praise, reactions, the bigger notes that do not belong to any one page.

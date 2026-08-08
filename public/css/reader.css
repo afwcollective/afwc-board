@@ -548,6 +548,14 @@
   scroll-margin-top: calc(var(--reader-bar-h) + 12px);
 }
 
+/* The renamed discussion topic. Only rendered when it differs from the draft's
+   own title — see views/drafts/show.ejs. */
+.dc-topic {
+  margin: 0 0 var(--s3);
+  font-size: 21px;
+  line-height: 1.25;
+}
+
 .dc-intro {
   margin: 0 0 var(--s5);
   color: var(--ink-3);
