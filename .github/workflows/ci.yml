@@ -1,0 +1,29 @@
+name: CI
+
+# Build + parity check on every pull request against main. No secrets needed
+# and nothing is deployed — this is the "does it still build" gate for a
+# change before it merges. deploy.yml (push to main) covers the actual ship.
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build & verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build the Worker (esbuild + compiled EJS views)
+        run: npm run worker:build
+
+      - name: Check view parity (Express views vs. Worker-compiled views)
+        run: npm run worker:parity:views

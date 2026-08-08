@@ -4,32 +4,43 @@
 # miniflare's local D1 (SQLite under .wrangler/state) and local R2. No Cloudflare
 # account is required to develop; `database_id` below is a placeholder that gets
 # replaced with the real UUID from `wrangler d1 create` on the day the group's
-# Cloudflare account exists (see README / PORT-CLOUDFLARE.md).
+# Cloudflare account exists (see README.md's DEPLOY-DAY CHECKLIST / PORT-CLOUDFLARE.md).
 #
 # Paths are relative to THIS file (worker/), which is why the assets directory
 # reaches back up to the shared ../public that the Express app also serves.
 #
-# ------------------------------------------------------- PLACEHOLDERS FOR P6 --
-# Two things below still need the group's real Cloudflare account, marked
-# where they appear:
-#   * [[d1_databases]] database_id — a PLACEHOLDER VALUE, replaced with the
-#     real UUID `wrangler d1 create afwc-board` produces.
-#   * [[r2_buckets]] bucket_name — the STRING is already final and does not
-#     change; what P6 must do is create the bucket that name refers to, with
-#     `wrangler r2 bucket create afwc-board-files`, unlike D1 where `wrangler
-#     d1 migrations apply` both creates and seeds the schema in one step.
-# `workers_dev = true` also wants a P6 look: fine for the free `*.workers.dev`
-# URL this plan targets (PORT-CLOUDFLARE.md "Ownership / deploy model"), but
-# worth a deliberate keep-or-drop decision once a custom domain is on the
-# table rather than carrying it forward by default.
+# ================================================ TWO THINGS DEPLOY DAY TOUCHES ==
+#   1. [[d1_databases]] database_id, below — a loud placeholder, replaced with
+#      the real UUID `wrangler d1 create afwc-board` prints.
+#   2. [[r2_buckets]] bucket_name, below — the STRING is already final and never
+#      changes; the ACTION needed is creating the bucket that name refers to,
+#      with `wrangler r2 bucket create afwc-board-files` (unlike D1, where
+#      `wrangler d1 migrations apply` both creates and seeds the schema in one
+#      step, R2 has no equivalent "create on first write").
+# Both are called out again, loudly, right where they appear below. The full
+# copy-paste sequence — create the DB, paste the UUID here, create the bucket,
+# apply migrations remotely, deploy — is README.md's DEPLOY-DAY CHECKLIST.
+# ===================================================================================
 
-name = "afwc-board"
+name = "afwc-board"                  # ← FINAL. Matches database_name and the R2
+                                      #   bucket's naming below; also becomes the
+                                      #   *.workers.dev subdomain (see workers_dev).
 main = "dist/index.js"
-compatibility_date = "2026-08-01"
+compatibility_date = "2026-08-01"    # ← FINAL for this build. Bump only alongside a
+                                      #   deliberate re-test against a newer Workers
+                                      #   runtime — never drift it forward by habit.
 # nodejs_compat: sanitize-html's dependency graph (htmlparser2, postcss) reaches
 # for a handful of node builtins. The flag costs nothing and keeps the bundle
 # honest rather than shimming them by hand.
 compatibility_flags = ["nodejs_compat"]
+
+# workers_dev = true — DECIDED, KEPT: this app ships at the free
+# afwc-board.<subdomain>.workers.dev URL with no custom domain (see
+# PORT-CLOUDFLARE.md "Ownership / deploy model" — that free URL is the whole
+# point of this plan). No [[routes]] block exists because there is no custom
+# domain to route from. Revisit only if the group ever buys a domain and wants
+# it fronting the site instead; until then this is the deploy target, not a
+# placeholder.
 workers_dev = true
 
 # ------------------------------------------------------------- observability --
@@ -90,7 +101,9 @@ crons = ["*/15 * * * *", "0 9 * * *", "0 9 1 * *"]
 [[d1_databases]]
 binding = "DB"
 database_name = "afwc-board"
-database_id = "00000000-0000-0000-0000-000000000000" # PLACEHOLDER FOR P6 — real UUID from `wrangler d1 create`
+# ↓↓↓ PLACEHOLDER — replace with the real value ↓↓↓
+# ← PASTE FROM `wrangler d1 create afwc-board` OUTPUT (the "database_id" line)
+database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "migrations"
 
 # ------------------------------------------------------------------- files --
@@ -115,7 +128,10 @@ migrations_dir = "migrations"
 # Worker route, and every one of those routes is requireMember or stricter.
 [[r2_buckets]]
 binding = "FILES"
-bucket_name = "afwc-board-files" # name is final — P6 must CREATE it: `wrangler r2 bucket create afwc-board-files`
+# ↓↓↓ ACTION NEEDED — this name is final, nothing to paste, but the bucket ↓↓↓
+# ← RUN `wrangler r2 bucket create afwc-board-files` BEFORE THE FIRST DEPLOY
+#   (unlike D1, `wrangler deploy` will NOT create this bucket for you)
+bucket_name = "afwc-board-files"
 
 # ------------------------------------------------------------------ assets --
 # public/ is shared verbatim with the Express app.
