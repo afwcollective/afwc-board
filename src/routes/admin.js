@@ -65,9 +65,12 @@ router.get('/', (req, res) => {
     pageJs: ['/js/map-picker.js'],
     meeting: next,
     // The next-session card's host picker needs the same active-member pool
-    // the meeting form and the weekly host-assign form already use.
-    memberOptions: users.listActive(),
-    memberCount: users.countActive(),
+    // the meeting form and the weekly host-assign form already use. The
+    // architect is hidden from it like everywhere else, except when the
+    // current host already IS the architect — keepIds pins that option back
+    // in so re-saving the pin/table below does not blank the host out.
+    memberOptions: roles.visibleUsers(users.listActive(), req.user, [next && next.host_user_id]),
+    memberCount: users.countActiveMembers(),
     leaderCount: users.countLeaders(),
     expiringLeaderCount: users.countExpiringLeaders(14),
     announcementCount: announcements.list(100).length,
@@ -134,7 +137,7 @@ router.get('/meetings', (req, res) => {
     upcoming: meetings.upcoming(),
     past: meetings.past(10),
     rules: rulesForList(),
-    memberOptions: users.listActive(),
+    memberOptions: roles.visibleUsers(users.listActive(), req.user),
   });
 });
 
@@ -231,11 +234,11 @@ router.get('/meetings/new', (req, res) =>
     meeting: null,
     values: { ...EMPTY_MEETING },
     errors: [],
-    memberOptions: users.listActive(),
+    memberOptions: roles.visibleUsers(users.listActive(), req.user),
   })
 );
 
-function readMeetingForm(body) {
+function readMeetingForm(body, viewer) {
   const kind = KINDS.has(String(body.kind)) ? String(body.kind) : 'rhouse';
   const offsite = kind === 'offsite';
   const values = {
@@ -265,11 +268,17 @@ function readMeetingForm(body) {
     if (!values.address) errors.push('Add the address. Members see it once they sign in; nobody else does.');
   }
 
-  // "none" and an unknown id both mean nobody. A booted account is not offered.
+  // "none" and an unknown id both mean nobody. A booted account is not
+  // offered, and neither is the architect, UNLESS the architect is the one
+  // filling out this form — the picker hides that option from everyone else,
+  // and this is the server-side twin of that hiding: a forged submit cannot
+  // hand the architect a hosting slot it was never offered.
   let host_user_id = null;
   if (values.host_user_id) {
     const candidate = users.byId(Number(values.host_user_id));
-    if (candidate && candidate.is_active) host_user_id = candidate.id;
+    const allowed =
+      candidate && candidate.is_active && (!roles.isArchitectRole(candidate.role) || roles.isArchitectUser(viewer));
+    if (allowed) host_user_id = candidate.id;
     else errors.push('That host is not an active member — pick somebody else, or "Nobody yet".');
   }
 
@@ -323,8 +332,8 @@ function removalIds(body) {
 }
 
 router.post('/meetings', acceptAttachments, (req, res) => {
-  const memberOptions = users.listActive();
-  const { values, starts_at, host_user_id, body_html, errors } = readMeetingForm(req.body || {});
+  const memberOptions = roles.visibleUsers(users.listActive(), req.user);
+  const { values, starts_at, host_user_id, body_html, errors } = readMeetingForm(req.body || {}, req.user);
   if (req.uploadError) errors.unshift(req.uploadError);
   if (errors.length) {
     return meetingFormFailed(req, res, { meeting: null, values, errors, memberOptions });
@@ -390,7 +399,10 @@ router.get('/meetings/:id/edit', (req, res, next) => {
     values: meetingValues(meeting),
     errors: [],
     files: eventFiles.forMeeting(meeting.id),
-    memberOptions: users.listActive(),
+    // Pin the current host back in even if it is the architect, so a leader
+    // editing some other field on a meeting the architect already hosts does
+    // not silently re-post an empty host over them.
+    memberOptions: roles.visibleUsers(users.listActive(), req.user, [meeting.host_user_id]),
   });
 });
 
@@ -398,9 +410,9 @@ router.post('/meetings/:id', acceptAttachments, (req, res, next) => {
   const meeting = meetings.byId(req.params.id);
   if (!meeting) return next();
 
-  const memberOptions = users.listActive();
+  const memberOptions = roles.visibleUsers(users.listActive(), req.user, [meeting.host_user_id]);
   const existing = eventFiles.forMeeting(meeting.id);
-  const { values, starts_at, host_user_id, body_html, errors } = readMeetingForm(req.body || {});
+  const { values, starts_at, host_user_id, body_html, errors } = readMeetingForm(req.body || {}, req.user);
   if (req.uploadError) errors.unshift(req.uploadError);
   if (errors.length) {
     return meetingFormFailed(req, res, { meeting, values, errors, files: existing, memberOptions });
@@ -664,7 +676,12 @@ router.post('/recurring/:id/host', (req, res, next) => {
   }
 
   const target = users.byId(Number(raw));
-  if (!target || !target.is_active) {
+  // Same server-side twin as readMeetingForm's host check: the picker hides
+  // the architect from everyone but the architect, so a forged submit cannot
+  // hand them a hosting slot either.
+  const targetAllowed =
+    target && target.is_active && (!roles.isArchitectRole(target.role) || roles.isArchitectUser(req.user));
+  if (!targetAllowed) {
     flash(res, 'error', 'Pick an active member to host that session.');
     return res.redirect(back);
   }
@@ -1032,7 +1049,11 @@ const termPhrase = (expiresAt) =>
   expiresAt ? `until ${dates.formatDate(expiresAt)}` : 'permanently, until someone removes it';
 
 router.get('/members', (req, res) => {
-  const people = users.list();
+  // The architect's own row survives this filter only for the architect
+  // themselves — this page is where the transfer-the-chair flow lives, so
+  // they need to see it. Every other leader gets a roster with no architect
+  // row at all, per the owner's "hide the god-level account" instruction.
+  const people = roles.visibleUsers(users.list(), req.user);
   res.render('admin/members', {
     title: 'Members',
     bodyClass: 'page-admin',

@@ -25,6 +25,13 @@ import * as roles from './auth/roles.js';
 export const users = {
   count: async (db) => (await one(db, 'SELECT COUNT(*) AS n FROM users')).n,
   countActive: async (db) => (await one(db, 'SELECT COUNT(*) AS n FROM users WHERE is_active = 1')).n,
+  /**
+   * Active accounts MINUS the architect — the dashboard's "N members" figure
+   * and its members-shortcut badge. The architect chair is not a member seat,
+   * and this account is hidden from every roster it would otherwise pad.
+   */
+  countActiveMembers: async (db) =>
+    (await one(db, "SELECT COUNT(*) AS n FROM users WHERE is_active = 1 AND role <> 'architect'")).n,
   /** Active accounts with admin-console access — leaders plus the architect. */
   countLeaders: async (db) =>
     (await one(

@@ -15,6 +15,13 @@ const roles = require('./auth/roles');
 const users = {
   count: () => db.prepare('SELECT COUNT(*) AS n FROM users').get().n,
   countActive: () => db.prepare('SELECT COUNT(*) AS n FROM users WHERE is_active = 1').get().n,
+  /**
+   * Active accounts MINUS the architect — the dashboard's "N members" figure
+   * and its members-shortcut badge. The architect chair is not a member seat,
+   * and this account is hidden from every roster it would otherwise pad.
+   */
+  countActiveMembers: () =>
+    db.prepare("SELECT COUNT(*) AS n FROM users WHERE is_active = 1 AND role <> 'architect'").get().n,
   /** Active accounts with admin-console access — leaders plus the architect. */
   countLeaders: () =>
     db

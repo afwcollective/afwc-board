@@ -206,7 +206,10 @@ const q = {
   generalChannel: () => db.prepare("SELECT * FROM chat_channels WHERE kind = 'general' ORDER BY id LIMIT 1"),
   membership: () => db.prepare('SELECT * FROM chat_members WHERE channel_id = ? AND user_id = ?'),
   memberCount: () => db.prepare('SELECT COUNT(*) AS n FROM chat_members WHERE channel_id = ?'),
-  activeMemberCount: () => db.prepare('SELECT COUNT(*) AS n FROM users WHERE is_active = 1'),
+  // #general's member count, minus the architect — same "N members" figure
+  // as everywhere else on the board that counts active people, and the
+  // architect chair is not a member seat any more than it is in that count.
+  activeMemberCount: () => db.prepare("SELECT COUNT(*) AS n FROM users WHERE is_active = 1 AND role <> 'architect'"),
   join: () =>
     db.prepare('INSERT OR IGNORE INTO chat_members (channel_id, user_id) VALUES (?, ?)'),
   leave: () => db.prepare('DELETE FROM chat_members WHERE channel_id = ? AND user_id = ?'),
@@ -309,10 +312,18 @@ const q = {
          FROM chat_attachments a JOIN chat_messages m ON m.id = a.message_id
         WHERE a.id = ?`
     ),
-  /** The member picker: everyone active except the viewer. */
+  /**
+   * The member picker: everyone active except the viewer, and except the
+   * architect — the "new message" picker hides the god-level account from
+   * everybody (including the architect's own picker, though there the
+   * `id <> ?` self-exclusion already does the work, since there is only one
+   * architect). A member who already has a DM with the architect still sees
+   * and can reply to it — see myDms, dmPartner, below — this only hides the
+   * option to START a new one.
+   */
   otherActiveMembers: () =>
     db.prepare(
-      'SELECT id, display_name, username FROM users WHERE is_active = 1 AND id <> ? ORDER BY LOWER(display_name)'
+      "SELECT id, display_name, username FROM users WHERE is_active = 1 AND id <> ? AND role <> 'architect' ORDER BY LOWER(display_name)"
     ),
   activeUserById: () => db.prepare('SELECT id, display_name, username, is_active FROM users WHERE id = ?'),
 };

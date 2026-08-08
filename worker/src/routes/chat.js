@@ -101,8 +101,11 @@ const membershipRow = (db, channelId, userId) =>
 const memberCountOf = async (db, channelId) =>
   (await one(db, 'SELECT COUNT(*) AS n FROM chat_members WHERE channel_id = ?', channelId)).n;
 
+// #general's member count, minus the architect — same "N members" figure as
+// everywhere else on the board that counts active people, and the architect
+// chair is not a member seat any more than it is in that count.
 const activeMemberCount = async (db) =>
-  (await one(db, 'SELECT COUNT(*) AS n FROM users WHERE is_active = 1')).n;
+  (await one(db, "SELECT COUNT(*) AS n FROM users WHERE is_active = 1 AND role <> 'architect'")).n;
 
 const joinChannel = (db, channelId, userId) =>
   run(db, 'INSERT OR IGNORE INTO chat_members (channel_id, user_id) VALUES (?, ?)', channelId, userId);
@@ -221,11 +224,19 @@ const attachmentsForChannel = (db, channelId) =>
     channelId
   );
 
-/** The member picker: everyone active except the viewer. */
+/**
+ * The member picker: everyone active except the viewer, and except the
+ * architect — the "new message" picker hides the god-level account from
+ * everybody (including the architect's own picker, though there the
+ * `id <> ?` self-exclusion already does the work, since there is only one
+ * architect). A member who already has a DM with the architect still sees
+ * and can reply to it — see myDmsOf, dmPartnerOf, below — this only hides the
+ * option to START a new one.
+ */
 const otherActiveMembers = (db, userId) =>
   all(
     db,
-    'SELECT id, display_name, username FROM users WHERE is_active = 1 AND id <> ? ORDER BY LOWER(display_name)',
+    "SELECT id, display_name, username FROM users WHERE is_active = 1 AND id <> ? AND role <> 'architect' ORDER BY LOWER(display_name)",
     userId
   );
 

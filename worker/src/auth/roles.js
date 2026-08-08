@@ -37,3 +37,22 @@ export const isArchitectUser = (user) => !!user && isArchitectRole(user.role);
 
 /** "ARCHITECT" / "LEADER" / "MEMBER" for badges. */
 export const roleLabel = (role) => (isRole(role) ? role.toUpperCase() : String(role || '').toUpperCase());
+
+/**
+ * The god-level account is hidden away, not deleted: an architect row is
+ * invisible in every user LISTING and PICKER to every viewer except the
+ * architect looking at their own — the members page still has to host the
+ * transfer flow. `rows` must carry `.role` and `.id` (whatever `users.list` /
+ * `users.listActive` already select).
+ *
+ * `keepIds` pins specific ids back into a filtered result even when they are
+ * the architect — for a <select> re-rendering a meeting the architect already
+ * hosts, so a leader who is not the architect editing some OTHER field on that
+ * meeting does not silently blank the host out from under them by re-posting a
+ * form whose dropdown no longer contains the person actually assigned.
+ */
+export const visibleUsers = (rows, viewer, keepIds = []) => {
+  if (isArchitectUser(viewer)) return rows;
+  const keep = new Set(keepIds.filter((id) => id !== null && id !== undefined).map(Number));
+  return rows.filter((r) => !isArchitectRole(r.role) || keep.has(Number(r.id)));
+};
