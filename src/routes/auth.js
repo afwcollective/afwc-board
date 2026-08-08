@@ -79,6 +79,8 @@ router.post('/setup', (req, res, next) => {
     password_hash: hashPassword(password),
     role: 'architect',
   });
+  // See src/routes/admin.js's /passcode POST for why this is stored twice.
+  setSetting('group_passcode', String(passcode).trim());
   setSetting('group_passcode_hash', hashSecret(String(passcode).trim()));
   setSetting('site_name', 'AFWC Board');
 

@@ -94,7 +94,7 @@ const BACKUP_STALE_MS = 30 * 24 * 3600e3;
 
 router.get('/', async (c) => {
   const db = c.env.DB;
-  const [meeting, lastBackupAt, memberOptions, memberCount, leaderCount, expiringLeaderCount, announcementCount, passcode, watermark, retentionDays] =
+  const [meeting, lastBackupAt, memberOptions, memberCount, leaderCount, expiringLeaderCount, announcementCount, passcode, groupPasscode, watermark, retentionDays] =
     await Promise.all([
       meetings.nextUnified(db),
       getSetting(db, 'last_backup_at', null),
@@ -106,6 +106,7 @@ router.get('/', async (c) => {
       users.countExpiringLeaders(db, 14),
       announcements.countUpTo(db, 100),
       getSetting(db, 'group_passcode_hash'),
+      getSetting(db, 'group_passcode'),
       getSetting(db, 'watermark_on', '1'),
       retention.retentionDays(db),
     ]);
@@ -124,6 +125,7 @@ router.get('/', async (c) => {
     expiringLeaderCount,
     announcementCount,
     passcodeSet: !!passcode,
+    groupPasscode,
     watermarkOn: watermark === '1',
     lastBackupAt,
     backupStale,
@@ -1068,6 +1070,7 @@ router.get('/passcode', async (c) =>
     title: 'Group passcode',
     bodyClass: 'page-admin',
     passcodeSet: !!(await getSetting(c.env.DB, 'group_passcode_hash')),
+    groupPasscode: await getSetting(c.env.DB, 'group_passcode'),
     updatedAt: null,
     errors: [],
   })
@@ -1090,12 +1093,18 @@ router.post('/passcode', async (c) => {
         title: 'Group passcode',
         bodyClass: 'page-admin',
         passcodeSet: !!(await getSetting(db, 'group_passcode_hash')),
+        groupPasscode: await getSetting(db, 'group_passcode'),
         updatedAt: null,
         errors,
       },
       400
     );
   }
+  // The passcode is a shared, spoken-aloud gate code, not a personal
+  // credential — see the leader handbook. It is stored in the clear so
+  // leaders can read it back (group_passcode), and the hash is kept too
+  // so /register keeps validating against it exactly as before.
+  await setSetting(db, 'group_passcode', passcode);
   await setSetting(db, 'group_passcode_hash', await hashSecret(passcode));
   flash(c, 'ok', 'Group passcode changed. Share the new one at the next meeting.');
   return c.redirect('/admin', 302);

@@ -196,7 +196,8 @@ const LOCALS = {
     { part: 2, fromFile: 6, fromChunk: 0, toFile: 6, toChunk: 0, rows: 1, bytes: 1_000_000, oversize: true },
   ],
   retentionDays: 365, retentionMin: 30, retentionMax: 3650,
-  passcodeSet: true, watermarkOn: true, previewHtml: '<p>Preview.</p>', expiringLeaderCount: 1,
+  passcodeSet: true, groupPasscode: 'remington2026',
+  watermarkOn: true, previewHtml: '<p>Preview.</p>', expiringLeaderCount: 1,
   files: [{ id: 1, original_name: 'flyer.png', size: 2048 }],
   limits: {
     maxDocMb: 25, maxImageMb: 10, maxImages: 60, maxTotalMb: 150,
@@ -427,6 +428,19 @@ const VARIANTS = [
    * base pass covers.
    */
   ['auth/setup', 'worker: setup code required', { setupTokenRequired: true }],
+
+  /*
+   * Group passcode display (both stacks pass `groupPasscode`, so this is not a
+   * typeof-guarded Worker-only local like backupHref — it's a plain nullable
+   * string). Base fixture covers the normal case (a plaintext code on file);
+   * these two pin the other reachable states: a pre-existing board whose
+   * passcode was set before this feature (hash only, no plaintext), and a
+   * brand-new board where registration hasn't been opened at all.
+   */
+  ['admin/dashboard', 'legacy passcode (hash only, no plaintext on file)', { groupPasscode: null }],
+  ['admin/dashboard', 'no passcode set yet', { groupPasscode: null, passcodeSet: false }],
+  ['admin/passcode', 'legacy passcode (hash only, no plaintext on file)', { groupPasscode: null }],
+  ['admin/passcode', 'no passcode set yet', { groupPasscode: null, passcodeSet: false }],
 ];
 
 const names = Object.keys(workerViews).sort();

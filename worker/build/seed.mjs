@@ -132,6 +132,13 @@ async function main() {
      VALUES ('group_passcode_hash', ${q(passcodeHash)}, datetime('now'))
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;`
   );
+  // Plaintext, so leaders can read the current code back on the dashboard and
+  // /admin/passcode — see worker/src/routes/admin.js's /passcode POST.
+  lines.push(
+    `INSERT INTO settings (key, value, updated_at)
+     VALUES ('group_passcode', ${q(PASSCODE)}, datetime('now'))
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;`
+  );
   lines.push(
     `INSERT INTO settings (key, value, updated_at)
      VALUES ('site_name', 'AFWC Board', datetime('now'))

@@ -72,6 +72,7 @@ router.get('/', (req, res) => {
     expiringLeaderCount: users.countExpiringLeaders(14),
     announcementCount: announcements.list(100).length,
     passcodeSet: !!getSetting('group_passcode_hash'),
+    groupPasscode: getSetting('group_passcode'),
     watermarkOn: getSetting('watermark_on', '1') === '1',
     lastBackupAt,
     backupStale,
@@ -903,6 +904,7 @@ router.get('/passcode', (req, res) => {
     title: 'Group passcode',
     bodyClass: 'page-admin',
     passcodeSet: !!getSetting('group_passcode_hash'),
+    groupPasscode: getSetting('group_passcode'),
     updatedAt: null,
     errors: [],
   });
@@ -920,10 +922,16 @@ router.post('/passcode', (req, res) => {
       title: 'Group passcode',
       bodyClass: 'page-admin',
       passcodeSet: !!getSetting('group_passcode_hash'),
+      groupPasscode: getSetting('group_passcode'),
       updatedAt: null,
       errors,
     });
   }
+  // The passcode is a shared, spoken-aloud gate code, not a personal
+  // credential — see the leader handbook. It is stored in the clear so
+  // leaders can read it back (group_passcode), and the hash is kept too
+  // so /register keeps validating against it exactly as before.
+  setSetting('group_passcode', passcode);
   setSetting('group_passcode_hash', hashSecret(passcode));
   flash(res, 'ok', 'Group passcode changed. Share the new one at the next meeting.');
   return res.redirect('/admin');

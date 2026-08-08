@@ -158,6 +158,8 @@ router.post('/setup', async (c) => {
     password_hash: await hashPassword(password),
     role: 'architect',
   });
+  // See worker/src/routes/admin.js's /passcode POST for why this is stored twice.
+  await setSetting(db, 'group_passcode', String(passcode).trim());
   await setSetting(db, 'group_passcode_hash', await hashSecret(String(passcode).trim()));
   await setSetting(db, 'site_name', 'AFWC Board');
 

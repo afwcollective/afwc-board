@@ -3,16 +3,27 @@
     <p class="eyebrow">Leaders only</p>
     <h1>Group passcode</h1>
     <p class="lede measure">
-      New members type this once when they register. Only its hash is stored, so
-      nobody — including you — can read the current one back out of the app. If it
-      has been forgotten, set a new one and say it out loud at the next meeting.
+      New members type this once when they register. It's a shared code you say
+      out loud at meetings, not a personal password, so it's shown below in
+      plain text for any leader to read back. If it leaks to someone outside
+      the group, set a new one — existing members keep their accounts; only
+      new sign-ups need the new code.
     </p>
 
     <%- include('../partials/form-errors', { errors: errors }) %>
 
-    <p class="notice">
-      Status: <strong><%= passcodeSet ? 'a passcode is set' : 'no passcode set — registration is closed' %></strong>
-    </p>
+    <% if (groupPasscode) { %>
+      <p class="notice mono">Current passcode: <strong><%= groupPasscode %></strong></p>
+    <% } else if (passcodeSet) { %>
+      <p class="notice">
+        A passcode is set, but not stored in a readable form (it was set before
+        this page could show it back). Set a new one below to display it here.
+      </p>
+    <% } else { %>
+      <p class="notice">
+        Status: <strong>no passcode set — registration is closed</strong>
+      </p>
+    <% } %>
 
     <form method="post" action="/admin/passcode" class="form" autocomplete="off">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>">

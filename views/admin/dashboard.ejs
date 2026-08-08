@@ -208,7 +208,13 @@
 
       <a class="card shortcut-card" href="/admin/passcode">
         <p class="eyebrow eyebrow--muted">Passcode</p>
-        <p class="small muted"><%= passcodeSet ? 'Set' : 'Not set' %> — the shared code.</p>
+        <% if (groupPasscode) { %>
+          <p class="small mono">Passcode: <strong><%= groupPasscode %></strong></p>
+        <% } else if (passcodeSet) { %>
+          <p class="small muted">Set a new one below to display it here.</p>
+        <% } else { %>
+          <p class="small muted">Not set — the shared code.</p>
+        <% } %>
       </a>
 
       <div class="card shortcut-card <%= backupStale ? 'card--warn' : '' %>">
